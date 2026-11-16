@@ -34,11 +34,12 @@ El objetivo es confirmar que la rama POSIX de `build.sh` produce un runtime func
 - [x] **Tarea 1 — Prioridad: Alta | Esfuerzo: 4 h**
   **Evidencia:** `gow3_pc/build.sh`, líneas 7–48 (rama `MINGW*|MSYS*`) frente a la rama POSIX (línea 50+); `gow3_pc/gpu/CMakeLists.txt` (ruta no-Windows, `GOW3GPU_KIND SHARED`, `pkg_check_modules(X11)` cuando `NOT WIN32`, `--allow-shlib-undefined`).
   Ejecutar `gow3_pc/build.sh` en una distro Linux con `pkg-config` (vulkan, sdl3, libavcodec/libavutil/libswscale), cmake y ninja; verificar que se generan `out/gow3-probe` y `out/gpu/libgow3gpu.so`.
-  *(Completada: ver `task-01.md` / `task-01-en.md`.)*
+  *(Completada: ver `task-01.md` / `task-01-es.md`.)*
 
-- [ ] **Tarea 2 — Prioridad: Alta | Esfuerzo: 4 h**
+- [x] **Tarea 2 — Prioridad: Alta | Esfuerzo: 4 h**
   **Evidencia:** `gow3_pc/shell.nix` (entorno de build) y el comentario de las líneas 59–64 de `build.sh` (reactivación automática de `nix-shell`).
   Documentar y verificar la lista de dependencias de sistema necesarias (`vulkan-loader`, `vulkan-headers`, `sdl3`, `ffmpeg`, `boost`, `fmt`, `robin-map`, `xxhash`, `vulkan-memory-allocator`, `glslang`, `spirv-cross`, `xbyak`, `zydis`, `libx11`, `libxcb`, `wayland`). Comparar con los paquetes MSYS2 de `gow3_pc/packaging/windows/README.md`.
+  *(Completada: ver `task-02.md` / `task-02-es.md`. Documentada en `gow3_pc/packaging/linux/README.md`; `spirv-cross`/`xbyak`/`libxcb`/`wayland` no son dependencias de build, y `base-devel`/`cmake`/`ninja`/`pkgconf`/`git` faltaban en la lista.)*
 
 - [ ] **Tarea 3 — Prioridad: Media | Esfuerzo: 3 h**
   **Evidencia:** `gow3_pc/build.sh`, líneas 108–130 (rama `--test`, compila y ejecuta los tests unitarios en POSIX).
@@ -126,7 +127,7 @@ El código ya está protegido con `#ifdef _WIN32` / `#ifndef _WIN32` (el shim `c
 
 ## Limitaciones conocidas y suposiciones
 
-- **Aún no se ha verificado ningún build/arranque real en Linux.** Todo lo anterior se ha inferido del código; la rama `linux-support` era idéntica a `main` (sin commits nuevos). Las estimaciones asumen un entorno con las dependencias de sistema ya disponibles. *(Actualizado: la Tarea 1 sí ha verificado el build en Arch Linux, ver `task-01.md`.)*
+- **Aún no se ha verificado ningún build/arranque real en Linux.** Todo lo anterior se ha inferido del código; la rama `linux-support` era idéntica a `main` (sin commits nuevos). Las estimaciones asumen un entorno con las dependencias de sistema ya disponibles. *(Actualizado: la Tarea 1 verificó el build y la Tarea 2 las dependencias de sistema en Arch Linux, ver `task-01.md` / `task-02.md`.)*
 - **El juego no está en el repositorio.** Se requiere una copia legítima de `CUSA00552` + la actualización 1.11 (ver `README.md`, secciones *Why*/*Playing*). Sin ella no hay forma de ejecutar el runtime.
 - **`enter_on_stack` es x86-64.** `probe.c` usa ensamblador inline para entrar en la stack del invitado; en ARM64 (algunos portátiles) puede faltar una versión (Tarea 5).
 - **El launcher actual es de Windows.** `build-starters.sh` y los arrancadores `.exe` no tienen equivalente para Linux; hay que crear el runner nativo (Tarea 9).
