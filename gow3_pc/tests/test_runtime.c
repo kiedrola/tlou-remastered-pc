@@ -4,6 +4,11 @@
 
 /* The settings menu of the GPU library restarts through probe.c, which tests do not link. */
 void runtime_restart(void) { abort(); }
+/* The GPU library's loader-image anchor and watch diagnostics also live in probe.c (the real
+ * ones use the Windows debug registers); no-ops here. */
+char __ImageBase;
+void runtime_exec_watch_retarget(uint64_t address) { (void)address; }
+void runtime_exec_watch_set_reads(const uint64_t *addresses, int count) { (void)addresses; (void)count; }
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

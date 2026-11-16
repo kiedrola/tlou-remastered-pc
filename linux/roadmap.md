@@ -41,9 +41,10 @@ The goal is to confirm that the POSIX branch of `build.sh` produces a functional
   Document and verify the list of required system dependencies (`vulkan-loader`, `vulkan-headers`, `sdl3`, `ffmpeg`, `boost`, `fmt`, `robin-map`, `xxhash`, `vulkan-memory-allocator`, `glslang`, `spirv-cross`, `xbyak`, `zydis`, `libx11`, `libxcb`, `wayland`). Compare with the MSYS2 packages in `gow3_pc/packaging/windows/README.md`.
   *(Completed: see `task-02.md` / `task-02-es.md`. Documented in `gow3_pc/packaging/linux/README.md`; `spirv-cross`/`xbyak`/`libxcb`/`wayland` are not build dependencies, and `base-devel`/`cmake`/`ninja`/`pkgconf`/`git` were missing from the list.)*
 
-- [ ] **Task 3 — Priority: Medium | Effort: 3 h**
+- [x] **Task 3 — Priority: Medium | Effort: 3 h**
   **Evidence:** `gow3_pc/build.sh` lines 108–130 (`--test` branch, compiles and runs unit tests on POSIX).
   Run `gow3_pc/build.sh --test` and confirm that all C/C++ tests pass on Linux (threads, memory, mutexes, MP3, video decoding, services, content).
+  *(Completed: see `task-03.md` / `task-03-es.md`. All 10 tests pass; the `--test` branch had never run on Linux — three link/compile defects fixed (missing `-lm` for GCC's `sincosf`, test stubs for `pad-test`, `probe.c`-only symbols in `runtime-test`/`sema-test`, missing `<unistd.h>` in `http-test`).)*
 
 - [ ] **Task 4 — Priority: Medium | Effort: 3 h**
   **Evidence:** `gow3_pc/gpu/CMakeLists.txt` (host shader generation via `glslang`, `host_shaders`).
@@ -127,7 +128,7 @@ The code is already guarded with `#ifdef _WIN32` / `#ifndef _WIN32` (the `compat
 
 ## Known Limitations and Assumptions
 
-- **No real Linux build/run has been verified yet.** Everything above is inferred from the code; the `linux-support` branch is identical to `main` (no new commits). The estimates assume an environment with the system dependencies already available. *(Updated: Task 1 verified the build and Task 2 verified the system dependencies on Arch Linux, see `task-01.md` / `task-02.md`.)*
+- **No real Linux build/run has been verified yet.** Everything above is inferred from the code; the `linux-support` branch is identical to `main` (no new commits). The estimates assume an environment with the system dependencies already available. *(Updated: Task 1 verified the build, Task 2 the system dependencies, and Task 3 the unit tests (`build.sh --test`, all 10 passing) on Arch Linux, see `task-01.md` / `task-02.md` / `task-03.md`.)*
 - **The game is not in the repository.** A legitimate `CUSA00552` copy + 1.11 update is required (see `README.md`, *Why*/*Playing* sections). Without it there is no way to run the runtime.
 - **`enter_on_stack` is x86-64.** `probe.c` uses inline assembly to enter the guest stack; on ARM64 (some laptops) a version may be missing (task 5).
 - **The current launcher is Windows.** `build-starters.sh` and the `.exe` starters have no Linux equivalent; the native runner must be created (task 9).
@@ -149,7 +150,7 @@ The code is already guarded with `#ifdef _WIN32` / `#ifndef _WIN32` (the `compat
 ## Final Verification Checklist (game runs on Linux)
 
 - [x] `gow3_pc/build.sh` generates `out/gow3-probe` and `out/gpu/libgow3gpu.so` without errors on the target Linux.
-- [ ] `gow3_pc/build.sh --test` runs all unit tests on Linux.
+- [x] `gow3_pc/build.sh --test` runs all unit tests on Linux.
 - [ ] `python3 tools/probe_tlou.py --boot` boots the game with a real copy of `CUSA00552` + 1.11 update.
 - [ ] The game enters the main menu and a full session can be played with no Vulkan device loss.
 - [ ] The window is created via SDL3 (X11 or Wayland) and the game image is displayed.

@@ -12,6 +12,24 @@ uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *n
     (void)table; (void)count; (void)name;
     return 0;
 }
+/* The pad code's other dependencies: the GPU library's controls/prompts/mouse and the
+ * settings/mouselook modules (linked into probe.c, not here). Neutral defaults: no mouse input,
+ * default sensitivity, no camera hook. */
+unsigned gow3gpu_controls_generation(void) { return 0; }
+void gow3gpu_controls_get(Gow3Controls *out) { (void)out; }
+float gow3gpu_controls_mouse_aim_sens(void) { return 1.0f; }
+int gow3gpu_controls_mouse_invert_x(void) { return 0; }
+float gow3gpu_controls_mouse_vertical(void) { return 1.0f; }
+int gow3gpu_mouse_take(float *dx, float *dy, unsigned *buttons) { (void)dx; (void)dy; (void)buttons; return 0; }
+unsigned gow3gpu_mouse_look_calls(void) { return 0; }
+void gow3gpu_mouse_look_pause(int paused) { (void)paused; }
+void gow3gpu_mouse_inject(float dx, float dy) { (void)dx; (void)dy; }
+void gow3gpu_prompts_set_labels(int set, const char *const *labels, int count) { (void)set; (void)labels; (void)count; }
+void gow3gpu_prompts_set_device(int device) { (void)device; }
+void runtime_gamesettings_tick(void) { }
+void runtime_mouselook_set_stick_boost(float boost) { (void)boost; }
+int runtime_mouselook_camera_recent(void) { return 0; }
+int runtime_mouselook_aim_recent(void) { return 0; }
 
 static void inject(const char *path, const char *tokens) {
     FILE *f=fopen(path,"w");
