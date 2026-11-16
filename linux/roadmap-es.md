@@ -58,9 +58,10 @@ El objetivo es confirmar que la rama POSIX de `build.sh` produce un runtime func
 
 El código ya está protegido con `#ifdef _WIN32` / `#ifndef _WIN32` (el shim `compat_win.c`/`.h` solo actúa en Windows). Hay que limpiar las suposiciones restantes de Windows en las herramientas y el launcher.
 
-- [ ] **Tarea 5 — Prioridad: Alta | Esfuerzo: 3 h**
+- [x] **Tarea 5 — Prioridad: Alta | Esfuerzo: 3 h**
   **Evidencia:** `tools/probe_tlou.py`, línea 462 (`built = ROOT / "gow3_pc/out/gow3-probe.exe"`) y línea 664 (uso en `command`).
   En `game_executable()`, elegir el binario según el SO: `gow3-probe.exe` en Windows, `gow3-probe` en POSIX.
+  *(Completada: ver `task-05.md` / `task-05-es.md`. Guarda de una línea `sys.platform == "win32"` en `game_executable()`; verificada en vivo end-to-end en Arch con una copia real de `CUSA00552` 01.00 + update 01.11 — la herramienta lanza el `gow3-probe` nativo, que completa `--check-imports` con `Imports: 0 missing`.)*
 
 - [ ] **Tarea 6 — Prioridad: Alta | Esfuerzo: 2 h**
   **Evidencia:** `tools/probe_tlou.py`, líneas 552–553 (`msys = Path(os.environ.get("MSYS2_ROOT", "C:/msys64"))` y `env["PATH"] = str(msys / "clang64/bin") + ...`).
@@ -126,7 +127,7 @@ El código ya está protegido con `#ifdef _WIN32` / `#ifndef _WIN32` (el shim `c
 
 ## Limitaciones conocidas y suposiciones
 
-- **Aún no se ha verificado ningún build/arranque real en Linux.** Todo lo anterior se ha inferido del código; la rama `linux-support` era idéntica a `main` (sin commits nuevos). Las estimaciones asumen un entorno con las dependencias de sistema ya disponibles. *(Actualizado: la Tarea 1 verificó el build, la Tarea 2 las dependencias de sistema, la Tarea 3 los tests unitarios (`build.sh --test`, los 10 pasando) y la Tarea 4 la generación de host shaders y la compilación de la librería GPU (build limpio fuera del árbol, sin dependencia de Windows en la ruta POSIX, sin cambios de código) en Arch Linux, ver `task-01.md` / `task-02.md` / `task-03.md` / `task-04.md`.)*
+- **Aún no se ha verificado ningún build/arranque real en Linux.** Todo lo anterior se ha inferido del código; la rama `linux-support` era idéntica a `main` (sin commits nuevos). Las estimaciones asumen un entorno con las dependencias de sistema ya disponibles. *(Actualizado: la Tarea 1 verificó el build, la Tarea 2 las dependencias de sistema, la Tarea 3 los tests unitarios (`build.sh --test`, los 10 pasando) la Tarea 4 la generación de host shaders y la compilación de la librería GPU (build limpio fuera del árbol, sin dependencia de Windows en la ruta POSIX, sin cambios de código) y la Tarea 5 el arranque del binario nativo por la herramienta (`--check-imports` en vivo con una copia real de `CUSA00552` 01.00 + update 01.11, `Imports: 0 missing`) en Arch Linux, ver `task-01.md` / `task-02.md` / `task-03.md` / `task-04.md` / `task-05.md`.)*
 - **El juego no está en el repositorio.** Se requiere una copia legítima de `CUSA00552` + la actualización 1.11 (ver `README.md`, secciones *Why*/*Playing*). Sin ella no hay forma de ejecutar el runtime.
 - **Solo x86-64, por diseño.** El port apunta a Windows y Linux en x86-64; el ensamblador inline `enter_on_stack` de `probe.c` (entrar en la stack del invitado) no tiene variante ARM64 y no se planea una.
 - **El launcher actual es de Windows.** `build-starters.sh` y los arrancadores `.exe` no tienen equivalente para Linux; hay que crear el runner nativo (Tarea 8).
