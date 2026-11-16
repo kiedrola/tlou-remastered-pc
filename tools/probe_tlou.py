@@ -550,8 +550,11 @@ def main():
     env = dict(os.environ)
     if isa_names and not cpu_features.missing_blocking():
         env["GOW3_CPU_CHECK"] = "0"           # the runtime would stop on the sets that are emulated now
-    msys = Path(os.environ.get("MSYS2_ROOT", "C:/msys64"))
-    env["PATH"] = str(msys / "clang64/bin") + os.pathsep + env.get("PATH", "")
+    # The Windows runtime links against MSYS2 CLANG64's own DLLs (libstdc++ and friends),
+    # which the process finds through PATH.
+    if sys.platform == "win32":
+        msys = Path(os.environ.get("MSYS2_ROOT", "C:/msys64"))
+        env["PATH"] = str(msys / "clang64/bin") + os.pathsep + env.get("PATH", "")
     env["GOW3_GPU_USER_DIR"] = str(user)
     # The shader cache: analysis/tlou-user/cache or, when that is a link (a junction to an SSD,
     # README), the folder it points to.

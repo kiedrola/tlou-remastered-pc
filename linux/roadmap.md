@@ -63,9 +63,10 @@ The code is already guarded with `#ifdef _WIN32` / `#ifndef _WIN32` (the `compat
   In `game_executable()`, choose the binary according to the OS: `gow3-probe.exe` on Windows, `gow3-probe` on POSIX.
   *(Completed: see `task-05.md` / `task-05-es.md`. One-line `sys.platform == "win32"` guard in `game_executable()`; verified live end-to-end on Arch with a real `CUSA00552` 01.00 + 01.11 update — the tool launches the native `gow3-probe`, which completes `--check-imports` with `Imports: 0 missing`.)*
 
-- [ ] **Task 6 — Priority: High | Effort: 2 h**
+- [x] **Task 6 — Priority: High | Effort: 2 h**
   **Evidence:** `tools/probe_tlou.py`, lines 552–553 (`msys = Path(os.environ.get("MSYS2_ROOT", "C:/msys64"))` and `env["PATH"] = str(msys / "clang64/bin") + ...`).
   Guard the MSYS2 PATH injection to Windows (`sys.platform == "win32"`): on Linux `C:/msys64` does not exist and the toolchain lookup would break.
+  *(Completed: see `task-06.md` / `task-06-es.md`. `sys.platform == "win32"` guard around the PATH injection (the Windows runtime links against the MSYS2 CLANG64 DLLs; the native Linux one has no such dependency). Verified on Arch by executing the exact statements of the old and new file (byte-identical `PATH` on simulated Windows in three `MSYS2_ROOT`/`PATH` cases; `PATH` no longer polluted on Linux), by capturing the environment the tool builds live (untouched on Linux, real `main()` run), and by a full `--check-imports` run with the real `CUSA00552` 01.00 + 01.11 update (`Imports: 0 missing`, exit 0).)*
 
 - [ ] **Task 7 — Priority: Medium | Effort: 3 h**
   **Evidence:** `tools/package_windows.sh` (Windows only, uses `cygpath`, `ldd`/DLLs from CLANG64, Windows Python).
@@ -127,7 +128,7 @@ The code is already guarded with `#ifdef _WIN32` / `#ifndef _WIN32` (the `compat
 
 ## Known Limitations and Assumptions
 
-- **No real Linux build/run has been verified yet.** Everything above is inferred from the code; the `linux-support` branch is identical to `main` (no new commits). The estimates assume an environment with the system dependencies already available. *(Updated: Task 1 verified the build, Task 2 the system dependencies, Task 3 the unit tests (`build.sh --test`, all 10 passing), Task 4 the host shader generation and the GPU library compilation (clean out-of-tree build, no Windows dependency in the POSIX path, no code changes), and Task 5 the tool launching the native binary (live `--check-imports` with a real `CUSA00552` 01.00 + 01.11 update, `Imports: 0 missing`) on Arch Linux, see `task-01.md` / `task-02.md` / `task-03.md` / `task-04.md` / `task-05.md`.)*
+- **No real Linux build/run has been verified yet.** Everything above is inferred from the code; the `linux-support` branch is identical to `main` (no new commits). The estimates assume an environment with the system dependencies already available. *(Updated: Task 1 verified the build, Task 2 the system dependencies, Task 3 the unit tests (`build.sh --test`, all 10 passing), Task 4 the host shader generation and the GPU library compilation (clean out-of-tree build, no Windows dependency in the POSIX path, no code changes), Task 5 the tool launching the native binary (live `--check-imports` with a real `CUSA00552` 01.00 + 01.11 update, `Imports: 0 missing`), and Task 6 the Windows-only guard on the MSYS2 PATH injection (byte-identical `PATH` on simulated Windows; `PATH` no longer polluted on Linux) — all on Arch Linux, see `task-01.md` / `task-02.md` / `task-03.md` / `task-04.md` / `task-05.md` / `task-06.md`.)*
 - **The game is not in the repository.** A legitimate `CUSA00552` copy + 1.11 update is required (see `README.md`, *Why*/*Playing* sections). Without it there is no way to run the runtime.
 - **x86-64 only, by design.** The port targets Windows and Linux on x86-64; the `enter_on_stack` inline assembly in `probe.c` (entering the guest stack) has no ARM64 variant and none is planned.
 - **The current launcher is Windows.** `build-starters.sh` and the `.exe` starters have no Linux equivalent; the native runner must be created (task 8).
