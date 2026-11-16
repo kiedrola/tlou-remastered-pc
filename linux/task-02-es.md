@@ -160,12 +160,12 @@ solo cambian los nombres de paquete y dos extras solo-Windows (`patch` y el trí
 - **Tarea 3 (`build.sh --test`):** no hay dependencias nuevas — los binarios de tests
   enlazan el mismo conjunto de librerías (verificado leyendo la rama `--test`,
   `build.sh:108-130`).
-- **Tarea 8 (`package_linux.sh`):** el cierre de `.so` del paquete es el conjunto
+- **Tarea 7 (`package_linux.sh`):** el cierre de `.so` del paquete es el conjunto
   directo de `ldd` listado arriba (`libgow3gpu.so`, `libvulkan.so.1`, `libSDL3.so.0`,
   los cinco `libav*`, `libfmt`, `libZydis`+`libZycore`, `libxxhash`, `libX11` + la
   familia de runtime C/C++); todo lo demás del `ldd` es cierre transitivo de
   `libav*`/SDL3 y se queda en la distro.
-- **Tarea 10 (launcher Tkinter):** necesita `python`, `python-tk` y `Pillow` (o
+- **Tarea 9 (launcher Tkinter):** necesita `python`, `python-tk` y `Pillow` (o
   `python-pip` + wheels) encima de esta lista.
 - **ICD de Vulkan:** el paquete del driver (p. ej. `mesa-vulkan-drivers` o el
   propietario de NVIDIA) es un requisito de tiempo de ejecución, no de build; queda

@@ -109,7 +109,7 @@ that failed before failed at **compile/link**, not at their checks.
   defines ~30 `EXCLUDE_FROM_ALL` test executables (pipeline-cache, motion, fiber, ...), built
   manually on Windows via `ninja -C out/gpu <target>`. The ones that `target_link_libraries(...
   gow3gpu)` will hit the same "shared library needs every `runtime_*` symbol" link problem on
-  POSIX that this task fixed for the C tests (they currently link no runtime objects). Task 15
+  POSIX that this task fixed for the C tests (they currently link no runtime objects). Task 14
   ("add platform-specific tests and run them in the `build.sh --test` flow") should decide the
   policy: keep the `--test` branch as the canonical C-test runner and extend it, or add a CMake
   `--test`-equivalent for the C++ targets.
@@ -121,5 +121,5 @@ that failed before failed at **compile/link**, not at their checks.
   `sinf(x); cosf(x)` pair in a `-O2 -Werror` TU that links without `-lm` will fail the same
   way. All existing math link lines in the `--test` branch now carry `-lm`.
 - **Headless testing works.** `pad-test` proved that SDL3's dummy driver + virtual joystick
-  is sufficient for controller tests — Tasks 12-14 (boot/replay) will still need a real
+  is sufficient for controller tests — Tasks 11-13 (boot/replay) will still need a real
   display/Vulkan device, but unit-level work needs no GUI.

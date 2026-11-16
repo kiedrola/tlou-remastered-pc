@@ -167,9 +167,9 @@ deprecated), deprecaciones de `miniz` (`<3.10`, `CMP0077`) y `sirit` (`CMP0218`)
 - **PGO off** (no hay `pgo/tlou.profdata` en el repo): el build es normal; en Windows el
   perfil da ~10% extra. LTO sí está ON.
 - El smoke test `--vulkan-only` pasa en una GTX 1060 (pre-Turing, VRAM 3 GB): la
-  verificación de juego real (Tarea 12/13) es donde importará la GPU.
+  verificación de juego real (Tarea 11/12) es donde importará la GPU.
 - Tarea 3 (`build.sh --test`): los binarios de test se compilan con el mismo
   `-Werror` de GCC; si algún test compila código compartido que aún no se tocó, podría
   aparecer algún diagnóstico nuevo de la misma familia (format-truncation/array-bounds).
-- Tarea 6/7 (`tools/probe_tlou.py`): el nombre del binario ya es `gow3-probe` en POSIX
+- Tarea 5/6 (`tools/probe_tlou.py`): el nombre del binario ya es `gow3-probe` en POSIX
   (sin `.exe`); pendiente el guard de `sys.platform == "win32"` del PATH de MSYS2.

@@ -169,9 +169,9 @@ Benign CMake 4.x warnings (no effect on the build): `CMP0167` (FindBoost removed
 - **PGO off** (there is no `pgo/tlou.profdata` in the repo): the build is plain; on
   Windows the profile gives ~10% extra. LTO is ON.
 - The `--vulkan-only` smoke test passes on a GTX 1060 (pre-Turing, 3 GB VRAM): real
-  game verification (Tasks 12/13) is where the GPU will matter.
+  game verification (Tasks 11/12) is where the GPU will matter.
 - Task 3 (`build.sh --test`): the test binaries compile with the same GCC `-Werror`;
   if a test compiles shared code that has not been touched yet, new diagnostics of the
   same family (format-truncation/array-bounds) may appear.
-- Tasks 6/7 (`tools/probe_tlou.py`): the binary name is already `gow3-probe` on POSIX
+- Tasks 5/6 (`tools/probe_tlou.py`): the binary name is already `gow3-probe` on POSIX
   (no `.exe`); the `sys.platform == "win32"` guard for the MSYS2 PATH is pending.

@@ -149,11 +149,11 @@ and two Windows-only extras (`patch`, the `spirv-*` trio as developer tools) dif
 
 - **Task 3 (`build.sh --test`):** no new dependencies — the test binaries link the same
   set of libraries (verified by reading the `--test` branch, `build.sh:108-130`).
-- **Task 8 (`package_linux.sh`):** the package's `.so` closure is the direct `ldd` set
+- **Task 7 (`package_linux.sh`):** the package's `.so` closure is the direct `ldd` set
   listed above (`libgow3gpu.so`, `libvulkan.so.1`, `libSDL3.so.0`, the five `libav*`,
   `libfmt`, `libZydis`+`libZycore`, `libxxhash`, `libX11` + the C/C++ runtime family);
   everything else in `ldd` is transitive closure of `libav*`/SDL3 and stays in the distro.
-- **Task 10 (Tkinter launcher):** needs `python`, `python-tk` and `Pillow` (or
+- **Task 9 (Tkinter launcher):** needs `python`, `python-tk` and `Pillow` (or
   `python-pip` + wheels) on top of this list.
 - **Vulkan ICD:** the driver package (e.g. `mesa-vulkan-drivers` or NVIDIA proprietary) is
   a runtime prerequisite, not a build one; it is noted in the new README.

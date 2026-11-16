@@ -46,13 +46,11 @@ The goal is to confirm that the POSIX branch of `build.sh` produces a functional
   Run `gow3_pc/build.sh --test` and confirm that all C/C++ tests pass on Linux (threads, memory, mutexes, MP3, video decoding, services, content).
   *(Completed: see `task-03.md` / `task-03-es.md`. All 10 tests pass; the `--test` branch had never run on Linux — three link/compile defects fixed (missing `-lm` for GCC's `sincosf`, test stubs for `pad-test`, `probe.c`-only symbols in `runtime-test`/`sema-test`, missing `<unistd.h>` in `http-test`).)*
 
-- [ ] **Task 4 — Priority: Medium | Effort: 3 h**
+- [x] **Task 4 — Priority: Medium | Effort: 3 h**
   **Evidence:** `gow3_pc/gpu/CMakeLists.txt` (host shader generation via `glslang`, `host_shaders`).
   Verify that host shader header generation and the GPU library compilation do not depend on anything Windows-related in the POSIX path.
+  *(Completed: see `task-04.md` / `task-04-es.md`. Clean out-of-tree build of `host_shaders` + `gow3gpu` (266/266 ninja steps) on Arch with distro tools only; the 31 generated headers are byte-for-byte identical to the in-tree ones; every Win32 reference in the compiled sources is guarded with `#ifdef _WIN32` with a POSIX fallback; no code changes were needed.)*
 
-- [ ] **Task 5 — Priority: Low | Effort: 2 h**
-  **Evidence:** `gow3_pc/src/probe.c` lines 118–128 (`enter_on_stack` assembly is POSIX x86-64 only).
-  Determine whether the fresh-stack boot (`enter_on_stack`) needs an ARM64 variant and, if so, plan it as separate work.
 
 ---
 
@@ -60,27 +58,27 @@ The goal is to confirm that the POSIX branch of `build.sh` produces a functional
 
 The code is already guarded with `#ifdef _WIN32` / `#ifndef _WIN32` (the `compat_win.c`/`.h` shim only acts on Windows). The remaining Windows assumptions in the tools and launcher need to be cleaned up.
 
-- [ ] **Task 6 — Priority: High | Effort: 3 h**
+- [ ] **Task 5 — Priority: High | Effort: 3 h**
   **Evidence:** `tools/probe_tlou.py`, line 462 (`built = ROOT / "gow3_pc/out/gow3-probe.exe"`) and line 664 (usage in `command`).
   In `game_executable()`, choose the binary according to the OS: `gow3-probe.exe` on Windows, `gow3-probe` on POSIX.
 
-- [ ] **Task 7 — Priority: High | Effort: 2 h**
+- [ ] **Task 6 — Priority: High | Effort: 2 h**
   **Evidence:** `tools/probe_tlou.py`, lines 552–553 (`msys = Path(os.environ.get("MSYS2_ROOT", "C:/msys64"))` and `env["PATH"] = str(msys / "clang64/bin") + ...`).
   Guard the MSYS2 PATH injection to Windows (`sys.platform == "win32"`): on Linux `C:/msys64` does not exist and the toolchain lookup would break.
 
-- [ ] **Task 8 — Priority: Medium | Effort: 3 h**
+- [ ] **Task 7 — Priority: Medium | Effort: 3 h**
   **Evidence:** `tools/package_windows.sh` (Windows only, uses `cygpath`, `ldd`/DLLs from CLANG64, Windows Python).
   Add a Linux equivalent `tools/package_linux.sh` that packages the runtime, `libgow3gpu.so`, dependent `.so` files via `ldd`, the launcher, scripts, and a bundled Python, without game files (`tools/package_check.py` already rejects build files/paths).
 
-- [ ] **Task 9 — Priority: Medium | Effort: 3 h**
+- [ ] **Task 8 — Priority: Medium | Effort: 3 h**
   **Evidence:** `launcher/build-starters.sh` (Windows only: `windres`, `-Wl,--subsystem,windows`, `-nostdlib`).
   Create the launcher's Linux entry point: a native runner (lightweight binary or executable script) that replaces `TLOU Game.exe`, and adapt `build-starters.sh` or create a `build-linux.sh` that does not use `windres`.
 
-- [ ] **Task 10 — Priority: Medium | Effort: 2 h**
+- [ ] **Task 9 — Priority: Medium | Effort: 2 h**
   **Evidence:** `launcher/tlou_launcher.pyw` (Windows Tkinter app) and `tools/copy_python.py`.
   Ensure the Tkinter launcher runs on Linux Python (the `.pyw` must be passed with `python3`; verify the Pillow/Tkinter imports in the Linux environment).
 
-- [ ] **Task 11 — Priority: Low | Effort: 2 h**
+- [ ] **Task 10 — Priority: Low | Effort: 2 h**
   **Evidence:** `gow3_pc/gpu/shim/window.cpp` and `gow3_pc/gpu/shim/sdl_window.h` (SDL3, X11/Wayland).
   Verify cross-platform window/resource icons (the BMP loaded with `SDL_LoadBMP` vs. Windows resources) and the overlay font path (`GOW3_FONT_PATH` in `CMakeLists.txt`).
 
@@ -88,23 +86,23 @@ The code is already guarded with `#ifdef _WIN32` / `#ifndef _WIN32` (the `compat
 
 ## Phase 3 — Testing
 
-- [ ] **Task 12 — Priority: High | Effort: 4 h**
+- [ ] **Task 11 — Priority: High | Effort: 4 h**
   **Evidence:** `tools/probe_tlou.py` (--boot, --check-imports, --cpu-only, --capture); `tools/tlou_pad.py`, `tools/tlou_bench.py`.
   Run `python3 tools/probe_tlou.py --boot --seconds 0 --game <path to game>` with a real copy of the game and its 1.11 update; confirm that the runtime boots, loads the shader cache, and enters the game.
 
-- [ ] **Task 13 — Priority: High | Effort: 6 h**
+- [ ] **Task 12 — Priority: High | Effort: 6 h**
   **Evidence:** `README.md` *Status* section ("playable from start to finish" rule) and `gow3_pc/README.md` (diagnostic variables such as `GOW3_FRAME_STATS`, `GOW3_GPU_CHECKPOINTS`).
   Verify at least one complete session with no device loss, recording controller input (`GOW3_PAD_RECORD`) so failures can be reproduced.
 
-- [ ] **Task 14 — Priority: Medium | Effort: 4 h**
+- [ ] **Task 13 — Priority: Medium | Effort: 4 h**
   **Evidence:** `tools/tlou_replay.py`, `tools/tlou_compare_shots.py`.
   Reproduce a recorded run on Linux to confirm that the replay loop (the basis for device-loss debugging) works with the native binary.
 
-- [ ] **Task 15 — Priority: Medium | Effort: 3 h**
+- [ ] **Task 14 — Priority: Medium | Effort: 3 h**
   **Evidence:** `gow3_pc/tests/` (multi-platform unit tests).
   Add, if they do not already exist, platform-specific tests (binary path, POSIX file path resolution) and run them in the `build.sh --test` flow.
 
-- [ ] **Task 16 — Priority: Medium | Effort: 3 h**
+- [ ] **Task 15 — Priority: Medium | Effort: 3 h**
   **Evidence:** `README.md` *Requirements* section (AVX/SSE4.2/POPCNT; Vulkan 1.3; 4 GiB VRAM).
   Register performance and stability by GPU type (NVIDIA pre-Turing, AMD, Intel) on Linux, in particular the points already documented for Windows (cloth solver `Cs_ClothSimulate512`, barriers in `if`, `GOW3_RTZ`).
 
@@ -112,15 +110,15 @@ The code is already guarded with `#ifdef _WIN32` / `#ifndef _WIN32` (the `compat
 
 ## Phase 4 — Linux Packaging / Distribution
 
-- [ ] **Task 17 — Priority: High | Effort: 4 h**
+- [ ] **Task 16 — Priority: High | Effort: 4 h**
   **Evidence:** `tools/package_windows.sh` and `tools/package_check.py`; `gow3_pc/packaging/windows/`.
   Define the Linux package structure (runtime + `libgow3gpu.so` + launcher + game runner + scripts + Python), with a clear entry point (`./TLOU` or similar) and no MSYS2 dependencies.
 
-- [ ] **Task 18 — Priority: Medium | Effort: 3 h**
+- [ ] **Task 17 — Priority: Medium | Effort: 3 h**
   **Evidence:** `README.md` *Playing* section (launch flow) and `tools/package_windows.sh` (bundled Python copy).
   Document in a `linux/README.md` the installation and boot instructions for Linux (dependencies, common `GOW3_*`/`TLOU_*` environment variables, location of `analysis/tlou-user`).
 
-- [ ] **Task 19 — Priority: Low | Effort: 2 h**
+- [ ] **Task 18 — Priority: Low | Effort: 2 h**
   **Evidence:** `.github/` (possible CI workflows) and `tools/release-notes/`.
   Add, if appropriate, a CI/build workflow for Linux and release notes for the Linux package.
 
@@ -128,10 +126,10 @@ The code is already guarded with `#ifdef _WIN32` / `#ifndef _WIN32` (the `compat
 
 ## Known Limitations and Assumptions
 
-- **No real Linux build/run has been verified yet.** Everything above is inferred from the code; the `linux-support` branch is identical to `main` (no new commits). The estimates assume an environment with the system dependencies already available. *(Updated: Task 1 verified the build, Task 2 the system dependencies, and Task 3 the unit tests (`build.sh --test`, all 10 passing) on Arch Linux, see `task-01.md` / `task-02.md` / `task-03.md`.)*
+- **No real Linux build/run has been verified yet.** Everything above is inferred from the code; the `linux-support` branch is identical to `main` (no new commits). The estimates assume an environment with the system dependencies already available. *(Updated: Task 1 verified the build, Task 2 the system dependencies, Task 3 the unit tests (`build.sh --test`, all 10 passing), and Task 4 the host shader generation and the GPU library compilation (clean out-of-tree build, no Windows dependency in the POSIX path, no code changes) on Arch Linux, see `task-01.md` / `task-02.md` / `task-03.md` / `task-04.md`.)*
 - **The game is not in the repository.** A legitimate `CUSA00552` copy + 1.11 update is required (see `README.md`, *Why*/*Playing* sections). Without it there is no way to run the runtime.
-- **`enter_on_stack` is x86-64.** `probe.c` uses inline assembly to enter the guest stack; on ARM64 (some laptops) a version may be missing (task 5).
-- **The current launcher is Windows.** `build-starters.sh` and the `.exe` starters have no Linux equivalent; the native runner must be created (task 9).
+- **x86-64 only, by design.** The port targets Windows and Linux on x86-64; the `enter_on_stack` inline assembly in `probe.c` (entering the guest stack) has no ARM64 variant and none is planned.
+- **The current launcher is Windows.** `build-starters.sh` and the `.exe` starters have no Linux equivalent; the native runner must be created (task 8).
 - **The shader cache (~250 MB, ~12,000 files) must be on an SSD.** Junctions/`mklink /J` are mentioned on Windows; on Linux this would be equivalent to a symlink or bind mount (`README.md`, *Playing* section).
 - **Third-party dependencies via submodule.** FSR-Vulkan, imgui, xbyak, miniz, magic_enum, LibAtrac9 (`.gitmodules`). FSR-Vulkan requires applying the patches in `gow3_pc/patches/fsr-vulkan` (done by `build.sh`).
 - **PGO/LTO with custom profile.** `pgo/tlou.profdata` is not in the repository; without it, the build is a normal one (build.sh, `build.sh` and `CMakeLists.txt` comments).

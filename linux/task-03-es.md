@@ -115,7 +115,7 @@ comprobaciones.
   motion, fiber, ...), que en Windows se compilan a mano con `ninja -C out/gpu <objetivo>`.
   Los que hacen `target_link_libraries(... gow3gpu)` chocarán en POSIX con el mismo
   problema de link «la librería compartida necesita todos los símbolos `runtime_*`» que esta
-  tarea arregló para los tests C (ahora mismo no enlazan objetos del runtime). La Tarea 15
+  tarea arregló para los tests C (ahora mismo no enlazan objetos del runtime). La Tarea 14
   («añadir tests específicos de plataforma y ejecutarlos en el flujo `build.sh --test`»)
   debería decidir la política: mantener la rama `--test` como ejecutor canónico de los
   tests C y extenderla, o añadir un equivalente para los objetivos C++.
@@ -128,6 +128,6 @@ comprobaciones.
   `-O2 -Werror` que se enlaza sin `-lm` fallará igual. Todas las líneas de link con
   matemáticas de la rama `--test` llevan ahora `-lm`.
 - **El testeo *headless* funciona.** `pad-test` demostró que el driver dummy de SDL3 + el
-  mando virtual bastan para los tests de mando — las Tareas 12-14 (arranque/reproducción)
+  mando virtual bastan para los tests de mando — las Tareas 11-13 (arranque/reproducción)
   seguirán necesitando pantalla y dispositivo Vulkan reales, pero el trabajo a nivel de
   unidades no necesita interfaz gráfica.
