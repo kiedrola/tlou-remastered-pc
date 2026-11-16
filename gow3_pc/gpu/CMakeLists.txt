@@ -197,6 +197,8 @@ if (WIN32)
     target_link_libraries(gow3gpu PUBLIC Vulkan::Vulkan ws2_32 bcrypt ntdll synchronization winmm pdh)
 else()
     target_link_libraries(gow3gpu PUBLIC PkgConfig::X11)
+    # gow3 (Linux): the same thread-identity shim, mirrored (GetCurrentThreadId over gettid).
+    target_compile_options(gow3gpu PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/shim/gow3_win_compat.h)
 endif()
 
 # gow3 (Windows): gow3gpu is a static library there, so the loader and the HLE runtime are

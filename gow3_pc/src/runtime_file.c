@@ -140,7 +140,13 @@ static void overlay_index(Overlay *o,const char *rel) {
         char child[1024], host[1100], key[1024];
         HostStat s;
         if ((size_t)snprintf(child,sizeof(child),"%s%s%s",rel,*rel ? "/" : "",e->d_name)>=sizeof(child)) continue;
+        /* gow3 (Linux): GCC proves the worst case (511-byte root + '/' + 1 KiB name) overflows
+         * host[1100]; snprintf truncates safely, exactly as it does in the Windows build.
+         * (Clang does not flag it; the pragma is a no-op there, so Windows stays identical.) */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
         snprintf(host,sizeof(host),"%s/%s",o->root,child);
+#pragma GCC diagnostic pop
         if (host_stat(host,&s) || overlay_key(child,key,sizeof(key))<=0) continue;
         if (o->count==o->capacity) {
             o->capacity=o->capacity ? o->capacity*2 : 256;
@@ -299,8 +305,13 @@ static void merge_layers(const char *guest,const char *chosen,Listing *l) {
     for (size_t i=0;i<overlay_count;++i) {
         const OverlayEntry *e=n ? overlay_find(&overlays[i],key) : NULL;
         if (n && (!e || !e->dir)) continue;
+        /* gow3 (Linux): as above; root[512] + '/' + a 2 KiB rel overflows layer[1100] in the
+         * worst case, and snprintf truncates safely on both platforms. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
         if (n) snprintf(layer,sizeof(layer),"%s/%s",overlays[i].root,e->rel);
         else snprintf(layer,sizeof(layer),"%s",overlays[i].root);
+#pragma GCC diagnostic pop
         if (strcmp(layer,chosen)) merge_listing(l,layer);
     }
 }

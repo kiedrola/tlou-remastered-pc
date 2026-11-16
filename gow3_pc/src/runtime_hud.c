@@ -153,6 +153,11 @@ __attribute__((sysv_abi)) void *runtime_hud_quad(void *context, void *vertices, 
      * rdi and rsi (this call's first two arguments). */
     volatile uint64_t anchor = 0;
     const char *saved = NULL;
+    /* gow3 (Linux): the scan deliberately walks past anchor into the stub's saved registers;
+     * GCC's -Warray-bounds would reject the probe (Clang does not flag it, and the pragma is a
+     * no-op there, so the Windows build stays identical). */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
     for (const char *p = (const char *)&anchor; p < (const char *)&anchor + 1024; p += 8) {
         uint64_t rdi_rsi[2];
         memcpy(rdi_rsi, p, sizeof(rdi_rsi));
@@ -161,6 +166,7 @@ __attribute__((sysv_abi)) void *runtime_hud_quad(void *context, void *vertices, 
             break;
         }
     }
+#pragma GCC diagnostic pop
     unsigned char *image = runtime_mouselook_image();
     if (hud_diag()) {
         uint64_t caller = 0;

@@ -581,6 +581,24 @@ static uint64_t patch_tcb_loads(const Segment *segments, uint64_t count) {
 }
 #endif
 #ifndef _WIN32
+/* gow3 (Linux): the Windows CRT (ucrtbase) defines __ImageBase; the GPU library uses
+ * &__ImageBase as an anchor inside the loader image (buffer_cache, vk_scheduler). */
+char __ImageBase;
+/* gow3 (Linux): instruction/data watches use the Win32 debug registers and exception
+ * handlers (the Windows-only block above); the GPU library's diagnostic hooks (GOW3_SRT_WATCH,
+ * GOW3_TRACE_WATCH_NODE, GOW3_RESULT_WATCH) are no-ops here. */
+void runtime_exec_watch_retarget(uint64_t address) {
+    static int noted;
+    if (!noted++) printf("Exec watch: Windows-only diagnostics (debug registers), ignored on POSIX\n");
+    (void)address;
+}
+void runtime_exec_watch_set_reads(const uint64_t *addresses, int count) {
+    static int noted;
+    if (!noted++) printf("Exec watch: Windows-only diagnostics (debug registers), ignored on POSIX\n");
+    (void)addresses; (void)count;
+}
+#endif
+#ifndef _WIN32
 static void fault(int sig, siginfo_t *info, void *context) {
     /* GPU page tracking (write-protected guest pages) is resolved first, except during a
      * speculative read: see vectored_fault. */
@@ -1269,6 +1287,10 @@ int main(int argc, char **argv) {
         printf("Red zone: protection unavailable (stub offset does not match this page size)\n");
         red_zone=NULL;
     }
+#else
+    /* gow3 (Linux): red-zone protection is a Windows feature (red_zone.h); the option is
+     * accepted for the same command line, and noted instead of silently ignored. */
+    if (red_zone_file) printf("Red zone: Windows-only protection ignored on POSIX\n");
 #endif
     const size_t red_zone_area = red_zone ? round_page(red_zone_code_size(red_zone)) : 0;
     const size_t image_area = round_page(size) + red_zone_area;
