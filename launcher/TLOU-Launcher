@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# TLOU-Launcher: opens the game launcher (tlou_launcher.pyw). The Linux counterpart of "TLOU Launcher.exe"
+# (launcher/tlou-launcher.c, built on Windows by build-starters.sh; the C starter also exists to dodge
+# antivirus heuristics on unsigned Windows binaries, which does not apply to a Linux script). In the
+# repository it sits beside tlou_launcher.pyw (launcher/); in a release package (tools/package_linux.sh)
+# it sits at the top, over launcher/ and python/. Extra arguments are passed on (--close-after 5, tests).
+set -u
+here=$(cd -- "$(dirname -- "$0")" && pwd)
+# The launcher's folder: beside this file (the repository) or in launcher/ (the package).
+root=$here
+[[ -f $root/tlou_launcher.pyw ]] || root=$here/launcher
+script=$root/tlou_launcher.pyw
+if [[ ! -f $script ]]; then
+    echo "TLOU-Launcher: tlou_launcher.pyw was not found beside this file (or in its launcher/ folder)." >&2
+    exit 1
+fi
+# A package ships its Python (python/bin/python3, with Tkinter and Pillow); a repository checkout uses
+# python3 from the PATH (Arch: in the `python` package; Debian: python3 + python3-tk + python3-pil).
+python=$here/python/bin/python3
+[[ -x $python ]] || python=$(command -v python3 || true)
+if [[ -z $python ]]; then
+    echo "TLOU-Launcher: Python 3 was not found (a python3 in the PATH, or a python/bin/python3 beside this file)." >&2
+    exit 1
+fi
+if ! "$python" -c 'import tkinter' 2>/dev/null; then
+    echo "TLOU-Launcher: $python has no Tkinter. Install it (Arch: sudo pacman -S tk; Debian: sudo apt install python3-tk; Fedora: sudo dnf install python3-tkinter) and try again." >&2
+    exit 1
+fi
+# From a terminal: the output (and a failure) goes to it. Without one (double-clicked in a file manager)
+# there is no window to say why a launch failed: the output goes to a log beside the player data, as the
+# game's own run does (the launcher's run log, analysis/tlou/launcher-run.log, is the game launch's).
+base=$(cd -- "$root/.." && pwd)
+if [[ -t 2 ]]; then
+    exec "$python" "$script" "$@"
+fi
+mkdir -p "$base/analysis/tlou"
+log=$base/analysis/tlou/launcher-start.log
+"$python" "$script" "$@" 2>&1 | tee -a "$log"
+exit "${PIPESTATUS[0]}"

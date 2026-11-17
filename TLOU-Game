@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# TLOU-Game: starts the game with the settings the launcher saved, without opening the launcher. The Linux
+# counterpart of "TLOU Game.exe" (launcher/tlou-game.c, built on Windows by build-starters.sh; the C starter
+# also exists to dodge antivirus heuristics on unsigned Windows binaries, which does not apply to a Linux
+# script). It runs tools/run_game.py, which reads the launcher's settings (analysis/tlou-user/launcher.json)
+# with the launcher's own code and starts the runtime (tools/probe_tlou.py). In the repository it sits at
+# the top, beside tools/; in a release package (tools/package_linux.sh) it sits at the top, over tools/ and
+# python/. Extra arguments are passed on (--print shows the settings the run would use).
+set -u
+here=$(cd -- "$(dirname -- "$0")" && pwd)
+# The script is beside this file in both layouts; the ..\ equivalent is for a copy of this file elsewhere.
+script=$here/tools/run_game.py
+[[ -f $script ]] || script=$here/../tools/run_game.py
+if [[ ! -f $script ]]; then
+    echo "TLOU-Game: tools/run_game.py was not found beside this file." >&2
+    exit 1
+fi
+# A package ships its Python (python/bin/python3, with Tkinter and Pillow); a repository checkout uses the
+# Python of a package built here (dist/TLOU-Remastered-linux), or python3 from the PATH without one.
+python=$here/python/bin/python3
+[[ -x $python ]] || python=$here/dist/TLOU-Remastered-linux/python/bin/python3
+[[ -x $python ]] || python=$(command -v python3 || true)
+if [[ -z $python ]]; then
+    echo "TLOU-Game: Python 3 was not found (a python3 in the PATH, or a python/bin/python3 beside this file)." >&2
+    exit 1
+fi
+# run_game.py reads the launcher's own code, which imports tkinter.
+if ! "$python" -c 'import tkinter' 2>/dev/null; then
+    echo "TLOU-Game: $python has no Tkinter. Install it (Arch: sudo pacman -S tk; Debian: sudo apt install python3-tk; Fedora: sudo dnf install python3-tkinter) and try again." >&2
+    exit 1
+fi
+# From a terminal: the output (and a failure) goes to it. Without one (double-clicked in a file manager)
+# there is no window to say why a launch failed: the output goes to a log beside the player data, as the
+# game's own run does (the game's run log, analysis/tlou/game-run.log, is written by run_game.py).
+if [[ -t 2 ]]; then
+    exec "$python" "$script" "$@"
+fi
+mkdir -p "$here/analysis/tlou"
+log=$here/analysis/tlou/game-start.log
+"$python" "$script" "$@" 2>&1 | tee -a "$log"
+exit "${PIPESTATUS[0]}"

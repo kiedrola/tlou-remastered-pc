@@ -70,8 +70,13 @@ rm -rf -- "$stage/gow3_pc/out/pydeps/iced_x86/__pycache__"   # (paths of this ma
 find "$stage/gow3_pc/out/pydeps/iced_x86" -name '*.py' -delete
 rm -f -- "$stage/gow3_pc/out/pydeps/iced_x86/_iced_x86_py.pyi"
 cp gow3_pc/scripts/*.py "$stage/gow3_pc/scripts/"
-cp tools/probe_tlou.py tools/apply_update.py "$stage/tools/"   # (no run_game.py: only the Windows TLOU Game.exe starter uses it)
+cp tools/probe_tlou.py tools/apply_update.py tools/run_game.py "$stage/tools/"
+# (run_game.py: the TLOU-Game starter's script, as TLOU Game.exe's on Windows)
 cp launcher/tlou_launcher.pyw launcher/updater.py "$stage/launcher/"
+# The starters: the package's entry points (TLOU-Launcher opens the launcher, TLOU-Game starts the game
+# directly with the settings the launcher saved), beside python/ and gow3_pc/ at the top.
+cp launcher/TLOU-Launcher TLOU-Game "$stage/"
+chmod 755 -- "$stage/TLOU-Launcher" "$stage/TLOU-Game"
 # The package's version: the launcher's updates (launcher/updater.py) compare it with the releases.
 cp tools/VERSION "$stage/VERSION"
 cp gow3_pc/packaging/linux/README-player.txt "$stage/README.txt"

@@ -12,7 +12,9 @@ O Python (com Tkinter e Pillow) já vem no pacote, em python/: não precisa inst
 
 1. Extraia o zip em uma pasta com bastante espaço livre.
 2. Inicie o launcher:
-       ./python/bin/python3 launcher/tlou_launcher.pyw
+       ./TLOU-Launcher
+   (ou, sem o launcher, com as últimas opções escolhidas nele: ./TLOU-Game)
+   Se a extração tirou o bit de execução, devolva-o: `chmod +x TLOU-Launcher TLOU-Game`
 3. Clique em "Pastas" e escolha "Arquivos do jogo": a pasta que tem o eboot.bin.
    A atualização 1.11 é procurada ao lado dela, na pasta de mesmo nome com "-patch" no fim
    (por exemplo, CUSA00552 e CUSA00552-patch).
@@ -36,7 +38,9 @@ Python (with Tkinter and Pillow) is included in the package, in python/: no Pyth
 
 1. Extract the zip to a folder with plenty of free space.
 2. Start the launcher:
-       ./python/bin/python3 launcher/tlou_launcher.pyw
+       ./TLOU-Launcher
+   (or, without the launcher, with the last settings chosen in it: ./TLOU-Game)
+   If your extractor dropped the executable bit, restore it: `chmod +x TLOU-Launcher TLOU-Game`
 3. Click "Folders" and choose "Game files": the folder with eboot.bin. Update 1.11 is looked for
    beside it, in the folder of the same name ending in "-patch" (CUSA00552 and CUSA00552-patch).
 4. Click PLAY. The first start takes longer while shaders compile, and you may see stutters until

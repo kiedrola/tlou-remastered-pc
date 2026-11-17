@@ -15,6 +15,7 @@ usage: apply_update.py --root <package folder> --wait-pid <launcher pid> [--no-r
 """
 import argparse
 import ctypes
+import os
 import shutil
 import subprocess
 import sys
@@ -30,15 +31,28 @@ TITLE = "The Last of Us Remastered"
 
 
 def wait_for_exit(pid, seconds):
-    kernel32 = ctypes.windll.kernel32
-    SYNCHRONIZE = 0x00100000
-    handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
-    if not handle:
-        return True  # already gone
-    try:
-        return kernel32.WaitForSingleObject(handle, int(seconds * 1000)) == 0
-    finally:
-        kernel32.CloseHandle(handle)
+    if sys.platform == "win32":
+        kernel32 = ctypes.windll.kernel32
+        SYNCHRONIZE = 0x00100000
+        handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+        if not handle:
+            return True  # already gone
+        try:
+            return kernel32.WaitForSingleObject(handle, int(seconds * 1000)) == 0
+        finally:
+            kernel32.CloseHandle(handle)
+    # POSIX (no ctypes.windll): a process that is gone no longer answers a signal-0 check.
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            pass  # there, but owned by another user
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.1)
 
 
 def retry(action, seconds=15):
@@ -232,7 +246,7 @@ def main():
     if window:
         window.destroy()
     if not args.no_restart:
-        starter = root / "TLOU Launcher.exe"
+        starter = root / ("TLOU Launcher.exe" if sys.platform == "win32" else "TLOU-Launcher")
         try:
             subprocess.Popen([str(starter)], cwd=str(root), close_fds=True)
         except OSError as error:

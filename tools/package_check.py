@@ -29,7 +29,8 @@ def main():
             bad.append(str(relative))
         elif path.suffix.lower() in FORBIDDEN and not inside_python:
             bad.append(str(relative))
-        elif relative.parts[0] in ("launcher", "tools", "gow3_pc") or path.name in ("TLOU Launcher.exe", "TLOU Game.exe"):
+        elif relative.parts[0] in ("launcher", "tools", "gow3_pc") or path.name in (
+                "TLOU Launcher.exe", "TLOU Game.exe", "TLOU-Launcher", "TLOU-Game"):
             if path.suffix.lower() != ".dll" and any(word in path.read_bytes() for word in PRIVATE):
                 bad.append(f"{relative} (a path of this machine)")
     if bad:

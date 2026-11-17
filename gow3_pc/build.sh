@@ -103,6 +103,10 @@ if [[ ! -f out/libatrac9.a || -n $(find third_party/LibAtrac9/C/src -newer out/l
 fi
 "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -no-pie "${includes[@]}" -I. -Isrc src/probe.c "${runtime[@]}" src/cpu_check.c src/red_zone.c src/vulkan_smoke.c out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o out/gow3-probe
 echo "Built $PWD/out/gow3-probe"
+# The launcher's starters (launcher/TLOU-Launcher, TLOU-Game): executable scripts, no compiler and no
+# windres (build-starters.sh compiles the C starters on Windows for antivirus heuristics; on Linux a
+# script is the ordinary thing).
+bash ../launcher/build-linux.sh
 # GPU check for run.sh (live_resolution=auto): links only the Vulkan loader.
 "$CC" -std=c11 -O2 -Wall -Wextra -Werror tools/gpu_capabilities.c "${libraries[@]}" -o out/gow3-gpu-capabilities
 if [[ ${1:-} == --test ]]; then

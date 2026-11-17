@@ -38,9 +38,9 @@ if sys.platform == "win32":
                 "gow3_pc/out/gow3-probe.exe")
 else:
     ASSET = "TLOU-Remastered-linux.zip"
-    REQUIRED = ("VERSION", "python/bin/python3", "launcher/tlou_launcher.pyw",
-                "launcher/updater.py", "tools/apply_update.py", "tools/probe_tlou.py",
-                "gow3_pc/out/gow3-probe")
+    REQUIRED = ("VERSION", "TLOU-Launcher", "TLOU-Game", "python/bin/python3",
+                "launcher/tlou_launcher.pyw", "launcher/updater.py", "tools/apply_update.py",
+                "tools/probe_tlou.py", "tools/run_game.py", "gow3_pc/out/gow3-probe")
 
 
 class UpdateError(Exception):
