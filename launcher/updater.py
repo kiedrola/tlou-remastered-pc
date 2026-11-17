@@ -29,12 +29,18 @@ from pathlib import Path
 REPOSITORY = "ravencaio/tlou-remastered-pc"
 RELEASES_PAGE = f"https://github.com/{REPOSITORY}/releases"
 API = f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=20"
-ASSET = "TLOU-Remastered-windows.zip"
 USER_AGENT = "TLOU-Remastered-Launcher"
 # What a package must hold to be installed over this one.
-REQUIRED = ("TLOU Launcher.exe", "VERSION", "python/pythonw.exe", "launcher/tlou_launcher.pyw",
-            "launcher/updater.py", "tools/apply_update.py", "tools/probe_tlou.py",
-            "gow3_pc/out/gow3-probe.exe")
+if sys.platform == "win32":
+    ASSET = "TLOU-Remastered-windows.zip"
+    REQUIRED = ("TLOU Launcher.exe", "VERSION", "python/pythonw.exe", "launcher/tlou_launcher.pyw",
+                "launcher/updater.py", "tools/apply_update.py", "tools/probe_tlou.py",
+                "gow3_pc/out/gow3-probe.exe")
+else:
+    ASSET = "TLOU-Remastered-linux.zip"
+    REQUIRED = ("VERSION", "python/bin/python3", "launcher/tlou_launcher.pyw",
+                "launcher/updater.py", "tools/apply_update.py", "tools/probe_tlou.py",
+                "gow3_pc/out/gow3-probe")
 
 
 class UpdateError(Exception):
@@ -196,9 +202,13 @@ def stage(archive, root, version):
 
 def start_apply(root, staged):
     """Starts the new version's installer, which waits for this process to exit."""
-    python = staged / "python" / "pythonw.exe"
+    if sys.platform == "win32":
+        python = staged / "python" / "pythonw.exe"   # (pythonw has no console for the installer)
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        python = staged / "python" / "bin" / "python3"
+        flags = 0
     script = staged / "tools" / "apply_update.py"
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen([str(python), "-I", str(script), "--root", str(root), "--wait-pid", str(os.getpid())],
                      cwd=str(staged), creationflags=flags, close_fds=True)
 

@@ -1814,6 +1814,19 @@ def recycle(paths):
     permanent delete. True when it worked."""
     if not paths:
         return True
+    if sys.platform != "win32":
+        # No Recycle Bin: these are the player's regenerable shader and pipeline caches.
+        import shutil
+
+        for path in paths:
+            try:
+                if Path(path).is_dir():
+                    shutil.rmtree(path)
+                else:
+                    Path(path).unlink()
+            except OSError:
+                return False
+        return True
     from ctypes import wintypes
 
     class SHFILEOPSTRUCTW(ctypes.Structure):
@@ -1836,13 +1849,18 @@ def python_exe():
 
 
 def game_running():
-    no_window = 0x08000000
+    if sys.platform == "win32":
+        no_window = 0x08000000
+        try:
+            out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq gow3-probe.exe", "/NH"], capture_output=True,
+                                 text=True, errors="replace", creationflags=no_window).stdout
+        except OSError:
+            return False
+        return "gow3-probe" in out
     try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq gow3-probe.exe", "/NH"], capture_output=True,
-                             text=True, errors="replace", creationflags=no_window).stdout
+        return subprocess.run(["pgrep", "-f", "gow3-probe"], capture_output=True).returncode == 0
     except OSError:
         return False
-    return "gow3-probe" in out
 
 
 def key_for(options, value, fallback):
@@ -2109,8 +2127,10 @@ class Launcher(tk.Tk):
     WIDTH, HEIGHT = 1180, 690   # 690: room for Video memory (14 Nov 2026)
 
     def __init__(self, seconds=0):
-        # Its own taskbar entry and icon, not those of pythonw.exe.
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TLOU.Remastered.Launcher")
+        # Its own taskbar entry and icon, not those of pythonw.exe (a Windows thing: on Linux the
+        # window has no taskbar group of its own).
+        if sys.platform == "win32":
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TLOU.Remastered.Launcher")
         super().__init__()
         self.seconds = seconds
         self.process = None
@@ -2339,7 +2359,7 @@ class Launcher(tk.Tk):
         game = game_folder(self.folders)
         if not (game / "eboot.bin").is_file():
             return self.t("no_game").format(game)
-        if not (ROOT / "gow3_pc/out/gow3-probe.exe").is_file():
+        if not (ROOT / "gow3_pc/out" / ("gow3-probe.exe" if sys.platform == "win32" else "gow3-probe")).is_file():
             return self.t("no_exe")
         return ""
 
@@ -2405,10 +2425,12 @@ class Launcher(tk.Tk):
         if self.profile.get():
             Path(PROFILE_ENV["GOW3_DUMP_DIR"]).mkdir(parents=True, exist_ok=True)
         RUN_LOG.parent.mkdir(parents=True, exist_ok=True)
+        # 0x08000000 is CREATE_NO_WINDOW: a Windows flag, and POSIX refuses a nonzero creationflags.
+        kwargs = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
         with RUN_LOG.open("w", encoding="utf-8") as output:
             self.process = subprocess.Popen(
                 game_command(python_exe(), self.folders, self.seconds), cwd=ROOT, env=env,
-                stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT, creationflags=0x08000000)
+                stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT, **kwargs)
 
     def note(self):
         key, *values = self.update_note
@@ -3086,7 +3108,11 @@ class Launcher(tk.Tk):
 
     def open_log(self):
         if LOG.is_file():
-            os.startfile(LOG)
+            if sys.platform == "win32":
+                os.startfile(LOG)
+            else:
+                subprocess.Popen(["xdg-open", str(LOG)], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
 
 
 def main():
