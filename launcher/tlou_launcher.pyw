@@ -836,6 +836,97 @@ KEYSYM_NAMES = {"Control_L": "Left Ctrl", "Control_R": "Right Ctrl", "Shift_L": 
 KEY_LABELS = {"Space": "Espaço", "Left Ctrl": "Ctrl esquerdo", "Right Ctrl": "Ctrl direito", "Left Shift": "Shift esquerdo",
               "Right Shift": "Shift direito", "Left Alt": "Alt esquerdo", "Right Alt": "Alt direito",
               "Up": "↑", "Down": "↓", "Left": "←", "Right": "→", "Return": "Enter", "Escape": "Esc"}
+# Linux key mapping, generated for the task-9 Linux port. The game resolves key_map entries with
+# SDL_GetScancodeFromName, so everything below is the SDL scancode name of the key. The tables are
+# produced from SDL3's own mapping code (see linux/task-09.md): the position table is SDL3's
+# xfree86_scancode_table2, the one its X11 and Wayland drivers use, and the keysym/character tables
+# follow SDL3's SDL_GetScancodeFromKeySym path. Binds are therefore layout-independent: a Spanish,
+# AZERTY or US board all write the same key_map for the same physical key.
+LINUX_XFREE86_2 = {
+    # index = X11 key code - 8 (Tk's event.keycode on the X11 backend) = Linux input key code.
+    1: "Escape", 2: "1", 3: "2", 4: "3", 5: "4", 6: "5", 7: "6", 8: "7", 9: "8", 10: "9", 11: "0", 12: "-",
+    13: "=", 14: "Backspace", 15: "Tab", 16: "Q", 17: "W", 18: "E", 19: "R", 20: "T", 21: "Y", 22: "U", 23: "I", 24: "O",
+    25: "P", 26: "[", 27: "]", 28: "Return", 29: "Left Ctrl", 30: "A", 31: "S", 32: "D", 33: "F", 34: "G", 35: "H", 36: "J",
+    37: "K", 38: "L", 39: ";", 40: "'", 41: "`", 42: "Left Shift", 43: "\\", 44: "Z", 45: "X", 46: "C", 47: "V", 48: "B",
+    49: "N", 50: "M", 51: ",", 52: ".", 53: "/", 54: "Right Shift", 55: "Keypad *", 56: "Left Alt", 57: "Space", 58: "CapsLock", 59: "F1", 60: "F2",
+    61: "F3", 62: "F4", 63: "F5", 64: "F6", 65: "F7", 66: "F8", 67: "F9", 68: "F10", 69: "Numlock", 70: "ScrollLock", 71: "Keypad 7", 72: "Keypad 8",
+    73: "Keypad 9", 74: "Keypad -", 75: "Keypad 4", 76: "Keypad 5", 77: "Keypad 6", 78: "Keypad +", 79: "Keypad 1", 80: "Keypad 2", 81: "Keypad 3", 82: "Keypad 0", 83: "Keypad .", 84: "Right Alt",
+    85: "ModeSwitch", 86: "NonUSBackslash", 87: "F11", 88: "F12", 89: "International 1", 90: "Language 3", 91: "Language 4", 92: "International 4", 93: "International 2", 94: "International 5", 96: "Keypad Enter", 97: "Right Ctrl",
+    98: "Keypad /", 99: "PrintScreen", 100: "Right Alt", 102: "Home", 103: "Up", 104: "PageUp", 105: "Left", 106: "Right", 107: "End", 108: "Down", 109: "PageDown", 110: "Insert",
+    111: "Delete", 113: "Mute", 114: "VolumeDown", 115: "VolumeUp", 116: "Power", 117: "Keypad =", 118: "Keypad +/-", 119: "Pause", 121: "Keypad .", 122: "Language 1", 123: "Language 2", 124: "International 3",
+    125: "Left GUI", 126: "Right GUI", 127: "Menu", 128: "Cancel", 129: "Again", 131: "Undo", 132: "Front", 133: "Copy", 135: "Paste", 136: "Find", 137: "Cut", 138: "Help",
+    139: "Menu", 142: "Sleep", 156: "AC Bookmarks", 158: "AC Back", 159: "AC Forward", 161: "Eject", 162: "Eject", 163: "MediaTrackNext", 164: "MediaPlayPause", 165: "MediaTrackPrevious", 166: "MediaStop", 167: "MediaRecord",
+    168: "MediaRewind", 171: "F13", 172: "AC Home", 173: "AC Refresh", 179: "Keypad (", 180: "Keypad )", 181: "AC New", 182: "Again", 183: "F13", 184: "F14", 185: "F15", 186: "F16",
+    187: "F17", 188: "F18", 189: "F19", 190: "F20", 191: "F21", 192: "F22", 193: "F23", 194: "F24", 195: "ModeSwitch", 200: "MediaPlay", 201: "MediaPause", 206: "AC Close",
+    207: "MediaPlay", 208: "MediaFastForward", 210: "PrintScreen", 217: "AC Search", 223: "Cancel", 226: "MediaSelect", 234: "AC Save",
+}
+
+# Named keys: the X keysym name Tk reports (group 0, level 0 - the same level SDL reads) -> SDL
+# name. Covers the keys with no character of their own (arrows, F keys, keypad, modifiers, media).
+LINUX_KEYSYM_NAMES = {
+
+    "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
+    "6": "6", "7": "7", "8": "8", "9": "9", "A": "A", "Alt_L": "Left Alt",
+    "Alt_R": "Right Alt", "B": "B", "BackSpace": "Backspace", "C": "C", "Cancel": "Cancel", "Caps_Lock": "CapsLock",
+    "Control_L": "Left Ctrl", "Control_R": "Right Ctrl", "D": "D", "Delete": "Delete", "Down": "Down", "E": "E",
+    "End": "End", "Escape": "Escape", "Execute": "Execute", "F": "F", "F1": "F1", "F10": "F10",
+    "F11": "F11", "F12": "F12", "F13": "F13", "F14": "F14", "F15": "F15", "F16": "F16",
+    "F17": "F17", "F18": "F18", "F19": "F19", "F2": "F2", "F20": "F20", "F21": "F21",
+    "F22": "F22", "F23": "F23", "F24": "F24", "F3": "F3", "F4": "F4", "F5": "F5",
+    "F6": "F6", "F7": "F7", "F8": "F8", "F9": "F9", "Find": "Find", "G": "G",
+    "H": "H", "Hangul": "Language 1", "Hangul_Hanja": "Language 2", "Help": "Help", "Henkan_Mode": "International 4", "Hiragana": "Language 4",
+    "Hiragana_Katakana": "International 2", "Home": "Home", "Hyper_R": "Menu", "I": "I", "ISO_Group_Shift": "ModeSwitch", "ISO_Left_Tab": "Tab",
+    "ISO_Level3_Shift": "Right Alt", "Insert": "Insert", "J": "J", "K": "K", "KP_0": "Keypad 0", "KP_1": "Keypad 1",
+    "KP_2": "Keypad 2", "KP_3": "Keypad 3", "KP_4": "Keypad 4", "KP_5": "Keypad 5", "KP_6": "Keypad 6", "KP_7": "Keypad 7",
+    "KP_8": "Keypad 8", "KP_9": "Keypad 9", "KP_Add": "Keypad +", "KP_Begin": "Keypad 5", "KP_Decimal": "Keypad .", "KP_Delete": "Keypad .",
+    "KP_Divide": "Keypad /", "KP_Down": "Keypad 2", "KP_End": "Keypad 1", "KP_Enter": "Keypad Enter", "KP_Equal": "Keypad =", "KP_Home": "Keypad 7",
+    "KP_Insert": "Keypad 0", "KP_Left": "Keypad 4", "KP_Multiply": "Keypad *", "KP_Next": "Keypad 3", "KP_Prior": "Keypad 9", "KP_Right": "Keypad 6",
+    "KP_Separator": "Keypad ,", "KP_Subtract": "Keypad -", "KP_Up": "Keypad 8", "Katakana": "Language 3", "L": "L", "Left": "Left",
+    "M": "M", "Menu": "Menu", "Meta_L": "Left GUI", "Meta_R": "Right GUI", "Muhenkan": "International 5", "N": "N",
+    "Next": "PageDown", "Num_Lock": "Numlock", "O": "O", "P": "P", "Pause": "Pause", "Print": "PrintScreen",
+    "Prior": "PageUp", "Q": "Q", "R": "R", "Redo": "Again", "Return": "Return", "Right": "Right",
+    "S": "S", "Scroll_Lock": "ScrollLock", "Shift_L": "Left Shift", "Shift_R": "Right Shift", "SunFront": "Front", "SunProps": "AC Properties",
+    "Super_L": "Left GUI", "Super_R": "Right GUI", "Sys_Req": "SysReq", "T": "T", "Tab": "Tab", "U": "U",
+    "Undo": "Undo", "Up": "Up", "V": "V", "W": "W", "X": "X", "XF86AudioChannelMode": "ModeSwitch",
+    "XF86AudioForward": "MediaFastForward", "XF86AudioLowerVolume": "VolumeDown", "XF86AudioMedia": "MediaSelect", "XF86AudioMute": "Mute", "XF86AudioNext": "MediaTrackNext", "XF86AudioPause": "MediaPause",
+    "XF86AudioPlay": "MediaPlayPause", "XF86AudioPrev": "MediaTrackPrevious", "XF86AudioRaiseVolume": "VolumeUp", "XF86AudioRecord": "MediaRecord", "XF86AudioRewind": "MediaRewind", "XF86AudioStop": "MediaStop",
+    "XF86Back": "AC Back", "XF86ChannelDown": "ChannelDown", "XF86ChannelUp": "ChannelUp", "XF86Close": "AC Exit", "XF86Copy": "Copy", "XF86Cut": "Cut",
+    "XF86Eject": "Eject", "XF86Exit": "AC Exit", "XF86Favorites": "AC Bookmarks", "XF86Forward": "AC Forward", "XF86HomePage": "AC Home", "XF86Launch5": "F14",
+    "XF86Launch6": "F15", "XF86Launch7": "F16", "XF86Launch8": "F17", "XF86Launch9": "F18", "XF86MediaPlayPause": "MediaPlayPause", "XF86MenuKB": "Menu",
+    "XF86New": "AC New", "XF86Open": "AC Open", "XF86Paste": "Paste", "XF86PowerOff": "Power", "XF86Reload": "AC Refresh", "XF86Save": "AC Save",
+    "XF86Search": "AC Search", "XF86Sleep": "Sleep", "XF86Tools": "F13", "XF86WakeUp": "Wake", "Y": "Y", "Z": "Z",
+    "a": "A", "apostrophe": "'", "b": "B", "backslash": "\\", "bracketleft": "[", "bracketright": "]",
+    "c": "C", "comma": ",", "d": "D", "e": "E", "equal": "=", "f": "F",
+    "g": "G", "grave": "`", "h": "H", "i": "I", "j": "J", "k": "K",
+    "l": "L", "less": "NonUSBackslash", "m": "M", "minus": "-", "n": "N", "o": "O",
+    "p": "P", "period": ".", "plusminus": "Keypad +/-", "q": "Q", "r": "R", "s": "S",
+    "semicolon": ";", "slash": "/", "space": "Space", "t": "T", "u": "U", "v": "V",
+    "w": "W", "x": "X", "y": "Y", "z": "Z",
+}
+
+# Single characters Tk reports -> SDL name; fallback for when event.keycode is not usable.
+# (Accented characters are not listed: SDL has no keysym for them, the physical key covers them.)
+LINUX_CHAR_NAMES = {
+
+    "\t": "Tab", "\n": "Return", " ": "Space", "'": "'", ",": ",", "-": "-", ".": ".", "/": "/", "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
+    "6": "6", "7": "7", "8": "8", "9": "9", ";": ";", "<": "NonUSBackslash", "=": "=", "A": "A", "B": "B", "C": "C", "D": "D", "E": "E", "F": "F", "G": "G",
+    "H": "H", "I": "I", "J": "J", "K": "K", "L": "L", "M": "M", "N": "N", "O": "O", "P": "P", "Q": "Q", "R": "R", "S": "S", "T": "T", "U": "U",
+    "V": "V", "W": "W", "X": "X", "Y": "Y", "Z": "Z", "[": "[", "\\": "\\", "]": "]", "`": "`", "a": "A", "b": "B", "c": "C", "d": "D", "e": "E",
+    "f": "F", "g": "G", "h": "H", "i": "I", "j": "J", "k": "K", "l": "L", "m": "M", "n": "N", "o": "O", "p": "P", "q": "Q", "r": "R", "s": "S",
+    "t": "T", "u": "U", "v": "V", "w": "W", "x": "X", "y": "Y", "z": "Z",
+}
+
+# Scancode names that type a character: when position and keysym disagree, SDL keeps the physical
+# position for these and follows the keysym for the rest (SDL3 X11_InitKeyboard).
+LINUX_CHAR_SC = frozenset({
+
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+    "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
+    "U", "V", "W", "X", "Y", "Z", "1", "2", "3", "4",
+    "5", "6", "7", "8", "9", "0", "Return", "Escape", "Backspace", "Tab",
+    "Space", "-", "=", "[", "]", "\\", "#", ";", "'", "`",
+    ",", ".", "/",
+})
 CONTROL_TEXT = {
     'Teclado e mouse': ('Keyboard and mouse', 'Teclado y ratón', 'Clavier et souris', 'Tastatur und Maus',
                         'Tastiera e mouse', 'Klawiatura i mysz', 'Клавиатура и мышь', 'キーボードとマウス'),
@@ -996,6 +1087,15 @@ CONTROL_TEXT = {
         'Odczyt pada niedostępny (nie znaleziono SDL3.dll).',
         'Чтение геймпада недоступно (SDL3.dll не найден).',
         'コントローラーを読み取れません (SDL3.dll が見つかりません)。'),
+    'Leitura do controle indisponível (biblioteca SDL3 não encontrada).': (
+        'Controller reading unavailable (the SDL3 library was not found).',
+        'Lectura del mando no disponible (no se encontró la biblioteca SDL3).',
+        'Lecture de la manette indisponible (bibliothèque SDL3 introuvable).',
+        'Controller kann nicht gelesen werden (SDL3-Bibliothek nicht gefunden).',
+        'Lettura del controller non disponibile (libreria SDL3 non trovata).',
+        'Odczyt pada niedostępny (nie znaleziono biblioteki SDL3).',
+        'Чтение геймпада недоступно (библиотека SDL3 не найдена).',
+        'コントローラーを読み取れません (SDL3 ライブラリが見つかりません)。'),
     'Vibração do controle': ('Controller vibration', 'Vibración del mando', 'Vibration de la manette',
                              'Controller-Vibration', 'Vibrazione del controller', 'Wibracje pada',
                              'Вибрация геймпада', 'コントローラーの振動'),
@@ -1609,15 +1709,57 @@ def control_maps(bindings):
     return ",".join(keys), ",".join(mouse)
 
 
+def _linux_backend():
+    """Which window system the launcher's Tk runs on, 'x11' or 'wayland'. It only decides how
+    Tk's event.keycode is numbered: X11 key codes are Linux input key codes plus 8."""
+    if os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("DISPLAY"):
+        return "wayland"
+    return "x11"
+
+
+def _linux_key_name(keysym, keycode):
+    """The SDL name of a Linux key Tk reported: the name the game's SDL3 driver assigns to the
+    physical key, so a bind made here works in game and matches a bind made on Windows.
+
+    Tk reports the character a key types and the X keysym name for the rest, both of which
+    depend on the keyboard layout; the game's SDL3 X11/Wayland drivers instead number keys by
+    hardware key code (event.keycode) through SDL3's xfree86_scancode_table2. The launcher
+    follows that: the physical position names the keys that type a character, the keysym names
+    the rest, and when the two disagree the keysym wins for non-character keys, exactly as
+    SDL3's X11_InitKeyboard does - dead keys, accents and ISO/AZERTY boards included.
+    """
+    if not isinstance(keysym, str):
+        return None
+    sym = None if len(keysym) == 1 else LINUX_KEYSYM_NAMES.get(keysym)
+    pos = None
+    if isinstance(keycode, int):
+        code = keycode - 8 if _linux_backend() == "x11" else keycode
+        pos = LINUX_XFREE86_2.get(code)
+    if pos is None:
+        return sym if sym is not None else LINUX_CHAR_NAMES.get(keysym)
+    if sym is None or sym == pos:
+        return pos
+    # Position and keysym disagree: SDL3 keeps the position for character keys (and for the
+    # fixed modifier keys) and follows the keysym for the other non-character keys.
+    if sym not in LINUX_CHAR_SC and sym not in ("Escape", "CapsLock", "Numlock", "Left Shift",
+                                                "Right Shift", "Left Ctrl", "Right Ctrl",
+                                                "Left Alt", "Right Alt", "Left GUI", "Right GUI"):
+        return sym
+    return pos
+
+
 def key_from_event(keysym, keycode):
-    """The SDL name of a key Tk reported (keycode: the Windows virtual key); None if unknown."""
+    """The SDL name of a key Tk reported (keycode: the Windows virtual key on Windows, the X11
+    or Wayland key code on Linux); None if unknown."""
     if keysym in KEYSYM_NAMES:
         return KEYSYM_NAMES[keysym]
-    try:
-        scan = ctypes.windll.user32.MapVirtualKeyW(keycode, 0)   # MAPVK_VK_TO_VSC
-    except (AttributeError, OSError):
-        return None
-    return SCAN_NAMES.get(scan)
+    if sys.platform == "win32":
+        try:
+            scan = ctypes.windll.user32.MapVirtualKeyW(keycode, 0)   # MAPVK_VK_TO_VSC
+        except (AttributeError, OSError):
+            return None
+        return SCAN_NAMES.get(scan)
+    return _linux_key_name(keysym, keycode)
 
 
 def key_label(name):
@@ -1867,8 +2009,8 @@ def key_for(options, value, fallback):
     return next((label for label, v in options.items() if v == value), fallback)
 
 
-# The Controller tab reads the controller with the game's own SDL3 (gow3_pc/out in a package,
-# MSYS2's CLANG64 in a source tree), and only while the tab is shown.
+# The Controller tab reads the controller with the game's own SDL3 (gow3_pc/out in a Windows
+# package, MSYS2's CLANG64 in a Windows source tree, the distro's on Linux), and only while the tab is shown.
 SDL_INIT_GAMEPAD = 0x2000
 # SDL_GamepadButton 0..14 (south east west north back guide start, sticks, shoulders, d-pad) and 20.
 SDL_BUTTONS = ("cross", "circle", "square", "triangle", "share", "ps", "options", "l3", "r3", "l1", "r1",
@@ -1879,10 +2021,15 @@ SDL_TOUCHPAD, SDL_MISC1 = 20, 15   # MISC1: Share/Capture on Xbox Series pads, t
 def sdl_candidates():
     yield ROOT / "gow3_pc/out/SDL3.dll"
     yield Path(os.environ.get("MSYS2_ROOT", "C:/msys64")) / "clang64/bin/SDL3.dll"
+    if sys.platform != "win32":
+        # The distro's SDL3: the Linux package does not ship it (it is the distro's, documented in
+        # licenses/THIRD-PARTY.txt), so it is the loader's name resolved against the system.
+        yield "libSDL3.so.0"
 
 
 class PadReader:
-    """The first connected controller through SDL3. ready is False without SDL3.dll."""
+    """The first connected controller through SDL3. ready is False without the library (SDL3.dll
+    on Windows, the distro's libSDL3.so.0 on Linux)."""
     sdl = None
 
     @classmethod
@@ -1890,7 +2037,7 @@ class PadReader:
         if cls.sdl is None:
             cls.sdl = False
             for path in sdl_candidates():
-                if not path.is_file():
+                if not Path(path).is_file() and sys.platform == "win32":
                     continue
                 try:
                     sdl = ctypes.CDLL(str(path))
@@ -2812,7 +2959,10 @@ class Launcher(tk.Tk):
             view.show(pressed, sticks, {"l2": l2, "r2": r2}, state["walk_speed"] if state["walking"] else None,
                       connected=bool(pad))
             if state["reader"] is None or not state["reader"].ready:
-                text = self.debug_text("Leitura do controle indisponível (SDL3.dll não encontrado).")
+                if sys.platform == "win32":
+                    text = self.debug_text("Leitura do controle indisponível (SDL3.dll não encontrado).")
+                else:
+                    text = self.debug_text("Leitura do controle indisponível (biblioteca SDL3 não encontrada).")
             elif pad:
                 text = self.debug_text("Controle conectado: {}").format(pad[0] or "?")
             else:
@@ -3111,8 +3261,11 @@ class Launcher(tk.Tk):
             if sys.platform == "win32":
                 os.startfile(LOG)
             else:
-                subprocess.Popen(["xdg-open", str(LOG)], stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
+                try:
+                    subprocess.Popen(["xdg-open", str(LOG)], stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+                except OSError:
+                    pass   # no xdg-open (a bare console): the log stays at analysis/tlou/boot.log
 
 
 def main():
