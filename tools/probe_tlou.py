@@ -698,7 +698,10 @@ def main():
 
     command = [str(game_executable()), str(out / "boot-linked.bin"),
                "--no-game-hooks", "--low-image", "--content-profile", str(out / "content.bin"),
-               "--app0", str(game), "--user", str(saves)]
+               "--app0", str(game), "--user", str(saves),
+               # A player's session is not capped by the runtime's development watchdog (POSIX
+               # default 10 s, hard exit; Windows has no watchdog and ignores this argument).
+               "--timeout", "0"]
     if update:
         command += ["--app0-overlay", str(update)]
     command += ["--guest-path", "/app0/eboot.bin"]
