@@ -124,6 +124,17 @@ __asm__(".text\n.globl enter_on_stack\nenter_on_stack:\n"
         " mov %rbp,%rsp\n pop %rbp\n ret\n");
 #endif
 static ABI void guest_exit(void) { puts("Runtime: process finalizer callback reached"); }
+/* GOW3_RED_ZONE_STATS=1: of the faults guest code took, how many were protected instructions. */
+static void note_red_zone_fault(uintptr_t rip) {
+    static int on=-1;
+    if (on<0) { const char *env=getenv("GOW3_RED_ZONE_STATS"); on=env && env[0]=='1'; }
+    if (!on || !red_zone || rip-(uintptr_t)image>=0x20000000) return;
+    static uint64_t total, in_stubs;
+    const uint64_t n=__atomic_add_fetch(&total,1,__ATOMIC_RELAXED);
+    const int stub=rip-(uintptr_t)red_zone->rz_area<red_zone->rz_code_bytes;
+    const uint64_t s=stub ? __atomic_add_fetch(&in_stubs,1,__ATOMIC_RELAXED) : __atomic_load_n(&in_stubs,__ATOMIC_RELAXED);
+    if (!(n&8191)) printf("Red zone: %" PRIu64 " of %" PRIu64 " guest faults came from protected instructions\n",s,n);
+}
 #ifdef _WIN32
 static void describe_address(char *out, size_t size, uintptr_t address) {
     HMODULE module=NULL;
@@ -476,17 +487,6 @@ static void cover_current_stack(const CONTEXT *context) {
     }
     tib->StackLimit=(PVOID)low; tib->StackBase=(PVOID)high;
 }
-/* GOW3_RED_ZONE_STATS=1: of the faults guest code took, how many were protected instructions. */
-static void note_red_zone_fault(uintptr_t rip) {
-    static int on=-1;
-    if (on<0) { const char *env=getenv("GOW3_RED_ZONE_STATS"); on=env && env[0]=='1'; }
-    if (!on || !red_zone || rip-(uintptr_t)image>=0x20000000) return;
-    static uint64_t total, in_stubs;
-    const uint64_t n=__atomic_add_fetch(&total,1,__ATOMIC_RELAXED);
-    const int stub=rip-(uintptr_t)red_zone->rz_area<red_zone->rz_code_bytes;
-    const uint64_t s=stub ? __atomic_add_fetch(&in_stubs,1,__ATOMIC_RELAXED) : __atomic_load_n(&in_stubs,__ATOMIC_RELAXED);
-    if (!(n&8191)) printf("Red zone: %" PRIu64 " of %" PRIu64 " guest faults came from protected instructions\n",s,n);
-}
 static LONG CALLBACK vectored_fault(EXCEPTION_POINTERS *info) {
     const EXCEPTION_RECORD *record=info->ExceptionRecord;
     DWORD code=record->ExceptionCode;
@@ -600,9 +600,17 @@ void runtime_exec_watch_set_reads(const uint64_t *addresses, int count) {
 #endif
 #ifndef _WIN32
 static void fault(int sig, siginfo_t *info, void *context) {
+    ucontext_t *uc = context;
+    const uintptr_t rip = (uintptr_t)uc->uc_mcontext.gregs[REG_RIP];
     /* GPU page tracking (write-protected guest pages) is resolved first, except during a
-     * speculative read: see vectored_fault. */
-    if (gpu_enabled && sig == SIGSEGV && !runtime_fault_recover && gow3gpu_handle_fault(context, info->si_addr)) return;
+     * speculative read: see vectored_fault. On the way, the kernel's signal frame is pushed
+     * below rsp: the red-zone stubs keep those 128 bytes out of the guest's reach. */
+    if (gpu_enabled && sig == SIGSEGV && !runtime_fault_recover) {
+        if (gow3gpu_handle_fault(context, info->si_addr)) {
+            note_red_zone_fault(rip);
+            return;
+        }
+    }
     /* A speculative guest memory read (runtime_memory.c) failed: resume its recovery point. */
     if ((sig == SIGSEGV || sig == SIGBUS) && runtime_fault_recover) {
         sigjmp_buf *recover = runtime_fault_recover;
@@ -614,11 +622,13 @@ static void fault(int sig, siginfo_t *info, void *context) {
         siglongjmp(*recover, 1);
     }
     /* The process is terminating: dladdr/snprintf are acceptable here. */
-    ucontext_t *uc = context;
-    uintptr_t rip = (uintptr_t)uc->uc_mcontext.gregs[REG_RIP];
     char line[512];
     Dl_info where;
-    if (rip - (uintptr_t)image < 0x10000000)
+    uint64_t site = 0;
+    if (red_zone && red_zone_site_of_stub(red_zone, rip, &site))
+        snprintf(line, sizeof(line), "Guest fault (signal %d) at guest offset 0x%llx (red-zone stub), address %p\n",
+                 sig, (unsigned long long)site, info->si_addr);
+    else if (rip - (uintptr_t)image < 0x10000000)
         snprintf(line, sizeof(line), "Guest fault (signal %d) at guest offset 0x%lx, address %p\n",
                  sig, (unsigned long)(rip - (uintptr_t)image), info->si_addr);
     else if (dladdr((void *)rip, &where) && where.dli_fname)
@@ -1281,17 +1291,11 @@ int main(int argc, char **argv) {
         }
     }
     /* The red-zone stubs follow the image (rel32 jmps reach them). */
-#ifdef _WIN32
     if (red_zone_file) red_zone=red_zone_load(red_zone_file);
     if (red_zone && red_zone->rz_code_offset!=round_page(size)) {
         printf("Red zone: protection unavailable (stub offset does not match this page size)\n");
         red_zone=NULL;
     }
-#else
-    /* gow3 (Linux): red-zone protection is a Windows feature (red_zone.h); the option is
-     * accepted for the same command line, and noted instead of silently ignored. */
-    if (red_zone_file) printf("Red zone: Windows-only protection ignored on POSIX\n");
-#endif
     const size_t red_zone_area = red_zone ? round_page(red_zone_code_size(red_zone)) : 0;
     const size_t image_area = round_page(size) + red_zone_area;
     image = low_image ? allocate_low_image(image_area) : allocate(image_area);
