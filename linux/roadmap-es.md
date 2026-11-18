@@ -73,17 +73,20 @@ El código ya está protegido con `#ifdef _WIN32` / `#ifndef _WIN32` (el shim `c
   Añadir un equivalente para Linux `tools/package_linux.sh` que empaquete el runtime, `libgow3gpu.so`, los `.so` dependientes vía `ldd`, el launcher, los scripts y un Python embebido, sin ficheros del juego (`tools/package_check.py` ya rechaza ficheros de build/rutas).
   *(Completada: ver `task-07.md` / `task-07-es.md`. `tools/package_linux.sh` + `tools/copy_python_linux.py` + `gow3_pc/packaging/linux/README-player.txt`; los ficheros compartidos del launcher recibieron solo guardas `sys.platform` (Windows idéntico byte a byte). `dist/TLOU-Remastered-linux.zip` (876 ficheros, 17 MiB, RUNPATH del runtime normalizado con `patchelf`, librerías de la distribución documentadas no copiadas, `iced_x86` solo bytecode) pasa `tools/package_check.py`; verificado en Arch desde una extracción limpia del zip publicado con el Python embebido: `--check-imports` en vivo con la copia real de `CUSA00552` 01.00 + 01.11 (`Imports: 0 missing`, código 0) y el launcher Tkinter abre una ventana real y cierra limpiamente.)*
 
-- [ ] **Tarea 8 — Prioridad: Media | Esfuerzo: 3 h**
+- [x] **Tarea 8 — Prioridad: Media | Esfuerzo: 3 h**
   **Evidencia:** `launcher/build-starters.sh` (solo Windows: `windres`, `-Wl,--subsystem,windows`, `-nostdlib`).
   Crear el punto de entrada del launcher para Linux: un runner nativo (binario ligero o script ejecutable) que sustituya a `TLOU Game.exe`, y adaptar `build-starters.sh` o crear un `build-linux.sh` que no use `windres`.
+  *(Completada: ver `task-08.md` / `task-08-es.md`. `launcher/TLOU-Launcher` y `launcher/TLOU-Game` más `launcher/build-linux.sh` los instalan en Arch, sin compilador y sin `windres`; verificado a través de la cadena completa `TLOU-Game` con el juego real.)*
 
-- [ ] **Tarea 9 — Prioridad: Media | Esfuerzo: 2 h**
+- [x] **Tarea 9 — Prioridad: Media | Esfuerzo: 2 h**
   **Evidencia:** `launcher/tlou_launcher.pyw` (app Tkinter de Windows) y `tools/copy_python.py`.
   Asegurar que el launcher Tkinter funciona con el Python de Linux (el `.pyw` debe pasarse a `python3`; verificar los imports de Pillow/Tkinter en el entorno Linux).
+  *(Completada: ver `task-09.md` / `task-09-es.md`. El launcher Tkinter corre con el Python de Linux y remapa las teclas correctamente en Linux (scancodes de SDL3, independiente del layout, igual que en Windows); verificado 51/51 con eventos XTEST reales.)*
 
-- [ ] **Tarea 10 — Prioridad: Baja | Esfuerzo: 2 h**
+- [x] **Tarea 10 — Prioridad: Baja | Esfuerzo: 2 h**
   **Evidencia:** `gow3_pc/gpu/shim/window.cpp` y `gow3_pc/gpu/shim/sdl_window.h` (SDL3, X11/Wayland).
   Verificar los iconos de ventana/recursos entre plataformas (el BMP cargado con `SDL_LoadBMP` frente a los recursos de Windows) y la ruta de la fuente del overlay (`GOW3_FONT_PATH` en `CMakeLists.txt`).
+  *(Completada: ver `task-10.md` / `task-10-es.md`. La ruta del icono funciona: `window.cpp` carga `GOW3_WINDOW_ICON` con `SDL_LoadBMP` en todas las plataformas (en Windows nada la establece y el ejecutable conserva su icono de recurso, intacto); en Linux `probe_tlou.py --boot` convierte ahora el `sce_sys/icon0.png` propio del juego a un BMP RGB de 256×256 (el límite por propiedad de X11 es 1 MiB, un icono de 512 lo toparía) y lo exporta, y el launcher ya no llama al `iconbitmap` exclusivo de Windows (convierte el `.ico` a PNG en memoria con Pillow y usa `iconphoto`). Verificado en Arch: un volcado en vivo del árbol X11 atrapó la propia ventana del juego (título *The Last of Us™ Remastered — PC port by Ravencaio*, clase `gow3-probe`) con `_NET_WM_ICON` 256×256 y el píxel central coincidente con `icon0.png`; la ventana del launcher también lo lleva; la fuente (`GOW3_FONT_PATH`) es solo de compilación — `gow3_font_ttf` en `libgow3gpu.so` es idéntico byte a byte a `DejaVuSans.ttf` (759,676 bytes), sin ruta en tiempo de ejecución. Windows idéntico byte a byte (dos archivos cambiados, +46/−2, protegidos por plataforma; el bloque exacto de icono ejecutado bajo un `sys.platform` simulado pasa 5/5). De paso, una brecha de arranque: el FX-8350 no tiene MOVBE y la tabla red-zone/ISA es exclusiva de Windows, así que el invitado no puede correr en este CPU (documentada para la Tarea 11).)*
 
 ---
 

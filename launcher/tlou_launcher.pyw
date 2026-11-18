@@ -2310,8 +2310,21 @@ class Launcher(tk.Tk):
     def set_icon(self):
         """The window's icon, also for the windows opened from this one."""
         if ICON.is_file():
-            self.iconbitmap(default=str(ICON))
-            return
+            if sys.platform == "win32":
+                self.iconbitmap(default=str(ICON))
+                return
+            # Tk on X11/Wayland has no iconbitmap (a Windows-only option): Pillow reads the
+            # .ico and Tk takes a PNG from memory.
+            try:
+                import io
+                from PIL import Image
+                buffer = io.BytesIO()
+                Image.open(ICON).convert("RGBA").save(buffer, format="PNG")
+                self.game_icon = tk.PhotoImage(data=buffer.getvalue())
+                self.iconphoto(True, self.game_icon)
+                return
+            except (ImportError, OSError, ValueError, tk.TclError):
+                pass
         game = game_folder(self.folders)
         picture = game / GAME_ICON
         if picture.is_file():

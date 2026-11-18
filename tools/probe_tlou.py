@@ -115,6 +115,32 @@ def convert_frames(capture):
     print(f"Frames: {capture}")
 
 
+def window_icon(game, out):
+    """The game's own icon (sce_sys/icon0.png) as the BMP the runtime loads for the window
+    (SDL_LoadBMP, gow3_pc/gpu/shim/window.cpp; GOW3_WINDOW_ICON). X11 window managers show it
+    in the taskbar (_NET_WM_ICON); Wayland has no window icon protocol, so the compositor's
+    app icon applies there. None without the picture or Pillow: the window just has no icon.
+    Windows is untouched: the exe keeps its own resource icon."""
+    picture = game / "sce_sys/icon0.png"
+    if not picture.is_file():
+        return None
+    try:
+        from PIL import Image
+    except ImportError:
+        print("Pillow is not installed: the window has no icon", flush=True)
+        return None
+    bmp = out / "window-icon.bmp"
+    try:
+        # 256x256 RGB: the BMP is the runtime's built-in icon format, and X11's per-property
+        # limit (1 MiB) is far away at this size; the taskbar scales it to its slot.
+        image = Image.open(picture).convert("RGB").resize((256, 256), Image.Resampling.LANCZOS)
+        image.save(bmp, format="BMP")
+    except (OSError, ValueError) as error:
+        print(f"WARNING: the window icon could not be made: {error}", flush=True)
+        return None
+    return bmp
+
+
 # Changes to the game's executable before it starts: per change, image offsets (eboot vaddr), the
 # bytes that must be there, and the bytes written instead (None: only checked).
 # Cheats from the GoldHEN cheat repository, by Celogamez: json/CUSA00552_01.11.json
@@ -556,6 +582,11 @@ def main():
         msys = Path(os.environ.get("MSYS2_ROOT", "C:/msys64"))
         env["PATH"] = str(msys / "clang64/bin") + os.pathsep + env.get("PATH", "")
     env["GOW3_GPU_USER_DIR"] = str(user)
+    # The window's icon (the X11 taskbar): the game's own sce_sys/icon0.png as a BMP, which
+    # window.cpp loads with SDL_LoadBMP. Windows sets nothing (the exe keeps its resource icon).
+    if args.boot and sys.platform != "win32":
+        if icon := window_icon(game, out):
+            env.setdefault("GOW3_WINDOW_ICON", str(icon))
     # The shader cache: analysis/tlou-user/cache or, when that is a link (a junction to an SSD,
     # README), the folder it points to.
     cache = user / "cache"
