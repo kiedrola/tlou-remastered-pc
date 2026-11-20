@@ -1748,6 +1748,19 @@ bool FloatingPromptsActive() {
     return world && SetOf(device.load(std::memory_order_relaxed)) >= 0;
 }
 
+#ifndef _WIN32
+// gow3 (Linux): _wfopen is the Windows CRT's wide-char fopen. Here std::filesystem::path::c_str()
+// already returns the narrow UTF-8 string (on Windows it is wchar_t), and the mode literals are
+// pure ASCII, so the same call sites narrow both and use fopen (io_file.cpp guards the same way).
+static FILE* _wfopen(const char* path, const wchar_t* mode) {
+    char narrow_mode[8] = {};
+    for (size_t i = 0; i + 1 < sizeof(narrow_mode) && mode[i] != L'\0'; ++i) {
+        narrow_mode[i] = static_cast<char>(mode[i]);
+    }
+    return std::fopen(path, narrow_mode);
+}
+#endif
+
 namespace {
 std::filesystem::path ConfigFolder();
 

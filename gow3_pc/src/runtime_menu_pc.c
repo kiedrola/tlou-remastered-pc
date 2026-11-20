@@ -76,7 +76,11 @@ static const RowDef defs[] = {
     {GOW3_PC_ROW_BUTTON, MORE_SETTINGS, 0, TEXT_MORE, 0, 0, 0},
 };
 enum { ROW_COUNT = sizeof(defs) / sizeof(defs[0]) };
-_Static_assert(ROW_COUNT <= GOW3_MENU_PC_MAX_ROWS && ROW_COUNT <= GOW3_MENU_PC_MAX_OPTIONS, "rows fit the page's ids");
+/* The cast to int: ROW_COUNT and the GOW3_MENU_PC_MAX_* constants are different anonymous enums
+ * (menu_pc_hook.h); GCC's -Wenum-compare rejects their comparison (clang, the Windows build,
+ * does not warn). */
+_Static_assert(ROW_COUNT <= (int)GOW3_MENU_PC_MAX_ROWS && ROW_COUNT <= (int)GOW3_MENU_PC_MAX_OPTIONS,
+               "rows fit the page's ids");
 
 static Gow3PcRow rows[ROW_COUNT];
 /* The values the game's widgets read and write (a toggle's int, a slider's float in percent),

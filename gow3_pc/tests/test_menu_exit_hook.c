@@ -254,7 +254,8 @@ int main(void) {
     static const unsigned char text_original[GOW3_MENU_TEXT_LENGTH] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57};
     unsigned original_at = 0;
     n = gow3_menu_build_text_stub(stub, 0x1111, 0x2222, text_original, &original_at);
-    assert(n <= 64 && original_at == 26 && stub[12] == 0x73 && 14 + stub[13] == original_at);
+    /* 14u: original_at is unsigned (clang does not warn, GCC's -Wsign-compare does). */
+    assert(n <= 64 && original_at == 26 && stub[12] == 0x73 && 14u + stub[13] == original_at);
     assert(stub[0] == 0x89 && stub[1] == 0xf0 && stub[2] == 0x2d && stub[7] == 0x3d);
     assert(gow3_menu_u32(stub + 3) == GOW3_MENU_TEXT_FIRST);
     assert(gow3_menu_u32(stub + 8) == GOW3_MENU_TEXT_LAST - GOW3_MENU_TEXT_FIRST + 1);

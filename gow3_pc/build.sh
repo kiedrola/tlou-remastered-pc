@@ -130,4 +130,8 @@ if [[ ${1:-} == --test ]]; then
     out/services-test
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_http.c -o out/http-test
     out/http-test
+    # Upstream 0.4.0's menu hooks (the QUIT button and the PC settings page): pure table tests,
+    # platform-neutral.
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -I. -Isrc tests/test_menu_exit_hook.c -o out/menu-exit-hook-test
+    out/menu-exit-hook-test
 fi

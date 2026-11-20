@@ -27,6 +27,7 @@ void gow3gpu_mouse_inject(float dx, float dy) { (void)dx; (void)dy; }
 void gow3gpu_prompts_set_labels(int set, const char *const *labels, int count) { (void)set; (void)labels; (void)count; }
 void gow3gpu_prompts_set_device(int device) { (void)device; }
 void runtime_gamesettings_tick(void) { }
+void runtime_menu_exit_tick(void) { }   /* the QUIT button's state machine (probe.c links it) */
 void runtime_mouselook_set_stick_boost(float boost) { (void)boost; }
 int runtime_mouselook_camera_recent(void) { return 0; }
 int runtime_mouselook_aim_recent(void) { return 0; }
