@@ -744,6 +744,7 @@ extern void gow3_stat_multipliers_status(int damage, int orb_pickup);
 
 /* The hooks below find their sites by signature (src/signature.h), so they work in any region
  * and version of the game whose code matches; a site that is not found leaves its feature off. */
+static unsigned char *allocate_near_image(uint64_t size);
 static void install_cheats(Segment *segments, uint64_t count, uint64_t size) {
     const char *names[] = {"health", "magic", "item meter", "Rage of Sparta", "red orbs",
                            "Very Hard unlock", "infinite double jumps"};
@@ -762,7 +763,11 @@ static void install_cheats(Segment *segments, uint64_t count, uint64_t size) {
             printf("Cheats: %s unavailable (code not found in this eboot.bin)\n", names[id]);
             continue;
         }
-        unsigned char *stubs = allocate(page_size);
+        unsigned char *stubs = allocate_near_image(size);
+        if (!stubs) {
+            printf("Cheats: %s unavailable (no stub page in range)\n", names[id]);
+            continue;
+        }
         int32_t relative[GOW3_CHEAT_HOOK_COUNT] = {0};
         for (unsigned i = 0; i < GOW3_CHEAT_HOOK_COUNT; ++i) {
             const Gow3CheatHook *hook = &gow3_cheat_hooks[i];
@@ -800,7 +805,11 @@ static void install_actor_watch(Segment *segments, uint64_t count, uint64_t size
         printf("Health display: unavailable (code not found in this eboot.bin)\n");
         return;
     }
-    unsigned char *stub = allocate(page_size);
+    unsigned char *stub = allocate_near_image(size);
+    if (!stub) {
+        printf("Health display: unavailable (no stub page in range)\n");
+        return;
+    }
     const int64_t delta = (int64_t)(uintptr_t)stub - (int64_t)(uintptr_t)(image + at + 5);
     if (delta < INT32_MIN || delta > INT32_MAX) {
         printf("Health display: unavailable (hook outside relative-jump range)\n");
@@ -828,7 +837,11 @@ static void install_orb_multiplier(Segment *segments, uint64_t count, uint64_t s
     }
     /* SysV call sites: preserve the receiver across the helper, then tail-call the original
      * setter. Its cap and upgrade notifications remain in the game's own code. */
-    unsigned char *stub = allocate(page_size);
+    unsigned char *stub = allocate_near_image(size);
+    if (!stub) {
+        printf("Red orbs: multiplier unavailable (no stub page in range)\n");
+        return;
+    }
     uintptr_t helper = (uintptr_t)gow3_orbs_gain, setter = (uintptr_t)(image + setter_at);
     unsigned char code[26];
     gow3_orb_build_stub(code, helper, setter);
@@ -879,8 +892,37 @@ static unsigned char *allocate_near_image(uint64_t size) {
     }
     return NULL;
 #else
+    /* Free gaps within +-1.5 GiB of the image, as on Windows. The guest's own memory lives at
+     * 32 GiB and up (LOW_MIN/USER_MIN in runtime_memory.c), so the low 2 GiB around the image
+     * holds only the host executable, the image and the glibc heap; the gaps between them stay
+     * free for this process. MAP_FIXED_NOREPLACE only takes a gap that is still unmapped when
+     * called, so nothing in use is ever replaced. */
     (void)size;
-    return allocate(page_size);
+    const uint64_t span = UINT64_C(0x60000000);
+    const int64_t lo = (int64_t)(uintptr_t)image > (int64_t)span ? (int64_t)(uintptr_t)image - (int64_t)span : 0;
+    const int64_t hi = (int64_t)(uintptr_t)image + (int64_t)size + (int64_t)span;
+    FILE *maps = fopen("/proc/self/maps", "r");
+    if (!maps) return NULL;
+    unsigned char *found = NULL;
+    char line[128];
+    uint64_t prev_end = 0;
+    int first = 1;
+    while (!found && fgets(line, sizeof line, maps)) {
+        uint64_t a, b;
+        if (sscanf(line, "%lx-%lx", &a, &b) != 2) continue;
+        if (!first && a - prev_end >= page_size && (int64_t)a > lo && (int64_t)prev_end < hi) {
+            const uint64_t start = (prev_end + page_size - 1) & ~(uint64_t)(page_size - 1);
+            if (start + page_size <= a) {
+                void *p = mmap((void *)start, page_size, PROT_READ | PROT_WRITE,
+                               MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+                if (p != MAP_FAILED) found = p;
+            }
+        }
+        first = 0;
+        if (b > prev_end) prev_end = b;
+    }
+    fclose(maps);
+    return found;
 #endif
 }
 /* Mouse look stub (src/runtime_mouselook.h): saves rax, rcx, rdx, rsi, rdi, r8-r11 and xmm0-7
@@ -998,7 +1040,11 @@ static void install_stat_multipliers(Segment *segments, uint64_t count, uint64_t
                  gow3_damage_signature_match(image + damage_at, size - damage_at);
     int pickup = pickup_at != UINT64_MAX && mapped(segments, count, pickup_at, GOW3_ORB_PICKUP_LENGTH) &&
                  gow3_orb_pickup_signature_match(image + pickup_at, size - pickup_at);
-    unsigned char *stubs = damage || pickup ? allocate(page_size) : NULL;
+    unsigned char *stubs = damage || pickup ? allocate_near_image(size) : NULL;
+    if ((damage || pickup) && !stubs) {
+        puts("Multipliers: no stub page in range");
+        damage = pickup = 0;
+    }
     if (damage) {
         gow3_damage_build_stub(stubs, gow3_damage_multiplier(1), gow3_damage_multiplier(0),
                                (uintptr_t)(image + damage_at + GOW3_DAMAGE_HOOK_LENGTH));
