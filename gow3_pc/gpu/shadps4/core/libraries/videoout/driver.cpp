@@ -653,6 +653,31 @@ void VideoOutDriver::Flip(const Request& req) {
                         (present_now[2] - window_present[2]) / (window * 1e7),
                         (present_now[3] - window_present[3]) / (window * 1e7));
             std::copy(std::begin(present_now), std::end(present_now), std::begin(window_present));
+            // gow3 diagnostics (Linux, 19 Nov 2026): the guest's own frame loop submits a flip
+            // per tick (SubmitFlipInternal) whatever the present limit is; if it submits faster
+            // than the frames shown, the game's logic (and its animations) run faster than the
+            // picture, at any fps limit.
+            static u64 last_guest_flips = AmdGpu::g_gow3_flips.load(std::memory_order_relaxed);
+            const u64 guest_flips = AmdGpu::g_gow3_flips.load(std::memory_order_relaxed);
+            std::printf("Guest flip rate: %.1f/s submitted by the guest, %.1f/s shown (frame loop "
+                        "vs present)\n",
+                        (guest_flips - last_guest_flips) / window, frames / window);
+            last_guest_flips = guest_flips;
+            // gow3 diagnostics (Linux, 19 Nov 2026): the guest's own view of time over the
+            // window (its process clock and TSC, as the game reads them): if the guest sees more
+            // time pass than the window, everything the game computes from its clocks (dt,
+            // animations) runs fast; GOW3_TIME_SCALE slows these clocks for tests.
+            static u64 guest_time_prev = Libraries::Kernel::sceKernelGetProcessTime();
+            static u64 guest_tsc_prev = Libraries::Kernel::sceKernelReadTsc();
+            const u64 guest_time = Libraries::Kernel::sceKernelGetProcessTime();
+            const u64 guest_tsc = Libraries::Kernel::sceKernelReadTsc();
+            const u64 tsc_hz = Libraries::Kernel::sceKernelGetTscFrequency();
+            std::printf("Guest clock check: the guest saw %.3f s (process time) and %.3f s (TSC) "
+                        "pass in a %.3f s window\n",
+                        (guest_time - guest_time_prev) / 1e6, (guest_tsc - guest_tsc_prev) / double(tsc_hz),
+                        window);
+            guest_time_prev = guest_time;
+            guest_tsc_prev = guest_tsc;
             // gow3 20 Oct 2026 (GitHub #95: memory rising over a long session): what holds memory,
             // every 5 s, so a long run shows which part grows.
             {
@@ -724,11 +749,12 @@ void VideoOutDriver::Flip(const Request& req) {
 
     // Update flip status.
     auto* port = req.port;
+    const u64 flip_pt_ms = Libraries::Kernel::sceKernelGetProcessTime();
     {
         std::unique_lock lock{port->port_mutex};
         auto& flip_status = port->flip_status;
         flip_status.count++;
-        flip_status.process_time = Libraries::Kernel::sceKernelGetProcessTime();
+        flip_status.process_time = flip_pt_ms;
         flip_status.tsc = Libraries::Kernel::sceKernelReadTsc();
         flip_status.flip_arg = req.flip_arg;
         flip_status.current_buffer = req.index;
@@ -736,6 +762,44 @@ void VideoOutDriver::Flip(const Request& req) {
             --flip_status.gc_queue_num;
         }
         --flip_status.flip_pending_num;
+    }
+
+    // gow3 diagnostics (GOW3_FRAME_STATS, 19 Nov 2026, the 2x animation speed): the guest's
+    // flip_arg sequence. The game submits a timestamp with each flip and reads it back when the
+    // flip completes (it is the event's udata); its mean delta per flip vs the guest's own
+    // process time over the same span reveals the clock the game times its frames with.
+    {
+        static bool const flip_arg_stats = std::getenv("GOW3_FRAME_STATS") != nullptr;
+        static s64 last_arg = 0;
+        static long double arg_delta = 0;
+        static u64 arg_count = 0;
+        static u64 last_pt = 0;
+        static long double pt_acc = 0;
+        static auto last_report = std::chrono::steady_clock::now();
+        if (flip_arg_stats) {
+            if (last_arg != 0 && req.flip_arg > last_arg) {
+                arg_delta += (long double)(req.flip_arg - last_arg);
+                arg_count++;
+            }
+            if (last_pt) {
+                pt_acc += (long double)(flip_pt_ms - last_pt);
+            }
+            last_arg = req.flip_arg;
+            last_pt = flip_pt_ms;
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last_report >= std::chrono::seconds(5)) {
+                if (arg_count) {
+                    std::printf("Runtime: guest flip_arg: mean delta %.0f per flip over %llu "
+                                "flips; guest process time advanced %.0f ms in the span\n",
+                                (double)(arg_delta / arg_count), (unsigned long long)arg_count,
+                                (double)pt_acc);
+                    arg_delta = 0;
+                    arg_count = 0;
+                    pt_acc = 0;
+                }
+                last_report = now;
+            }
+        }
     }
 
     // Trigger flip events for the port.

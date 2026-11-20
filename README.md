@@ -27,7 +27,11 @@ that is not fixed yet (a workaround is under Known issues), and with rough edges
   areas and about 40-44 FPS in the heaviest area tested, where the CPU side of the renderer is the
   limit (the draw recording thread at about 87%): lowering the resolution barely helps there.
 - **Frame pacing:** frame times swing while the game runs below its limit, and a fixed 30 FPS limit
-  (launcher, or the in-game menu) makes motion clearly more even.
+  (launcher, or the in-game menu) makes motion clearly more even. For The Last of Us Remastered
+  specifically, 30 FPS is not just smoother but the *correct* rate: its PS4 engine is 30 fps
+  frame-based (one 1/30 step per presented frame), so any limit above 30 makes the game run
+  faster, not smoother — the limit now defaults to 30 on Linux (Windows keeps 60, pick 30 in the
+  menu as before).
 - **Known issues:**
   - NPCs moving in jumps or bobbing up and down (GitHub #57, #63): the game read some results of
     its GPU memory copy shader (`Cs_MemCpy`) a frame late. They are read back now; in a save where

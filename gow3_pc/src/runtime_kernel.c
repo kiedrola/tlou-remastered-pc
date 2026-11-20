@@ -112,6 +112,28 @@ static int host_clock(uint32_t id,clockid_t *out) {
     default: return 0;
     }
 }
+/* gow3 diagnostics (GOW3_CLOCK_TRACE): per-clock read rate, once every 5 s (19 Nov 2026: the
+ * animation ran at twice speed; a tick loop that reads one clock per tick shows its frequency
+ * here, against the flip rate reported by GOW3_FRAME_STATS). Ids >= 32 are the runtime's own
+ * fast clocks: 32 the process-time counter (ns), 33 the TSC. */
+static void clock_tick(uint32_t id) {
+    static int on=-1;
+    if (on<0) on=getenv("GOW3_CLOCK_TRACE")!=NULL;
+    if (!on) return;
+    static uint64_t counts[34];
+    static struct timespec t0,last;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC,&now);
+    counts[id<34?id:33]++;
+    if (t0.tv_sec==0 && t0.tv_nsec==0) { t0=now; last=now; }
+    if ((long)(now.tv_sec-last.tv_sec)>=5) {
+        for (uint32_t i=0;i<34;i++)
+            if (counts[i])
+                printf("Runtime: guest clock reads/5s: id %u %.1f/s\n",i,(double)counts[i]/5.0);
+        memset(counts,0,sizeof(counts));
+        last=now;
+    }
+}
 static int clock_read(uint32_t id,GuestTimespec *ts) {
     /* gow3: looked up once, like time_scale(): getenv takes the CRT lock and scans the whole
      * environment, on every guest clock read. */
@@ -123,6 +145,7 @@ static int clock_read(uint32_t id,GuestTimespec *ts) {
         if (!(__atomic_fetch_or(&seen,bit,__ATOMIC_RELAXED)&bit))
             printf("Runtime: guest clock id %u requested\n",id);
     }
+    clock_tick(id);
     clockid_t host;
     if (!ts || !host_clock(id,&host)) return EINVAL;
     struct timespec t;
@@ -150,11 +173,13 @@ static ABI int32_t posix_clock_getres(uint32_t id,GuestTimespec *ts) {
     return 0;
 }
 static ABI uint64_t process_time(void) {
+    clock_tick(15);
     struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t);
     scale_timespec(&t,&process_start);
     return (uint64_t)(t.tv_sec-process_start.tv_sec)*1000000+(uint64_t)((t.tv_nsec-process_start.tv_nsec)/1000);
 }
 static ABI uint64_t process_time_counter(void) {
+    clock_tick(32);
 #ifdef _WIN32
     if (native_tsc_hz) return __rdtsc()-native_process_start;
 #endif
@@ -166,6 +191,7 @@ static ABI uint64_t process_time_frequency(void) { return native_tsc_hz ? native
 /* The guest's TSC is the process clock in nanoseconds. The raw rdtsc differs per core on some
  * hosts (3.9 s apart on a Xeon E5-2680 v4, #42), so a thread moving cores made the game jump. */
 static ABI uint64_t read_tsc(void) {
+    clock_tick(33);
 #ifdef _WIN32
     if (native_tsc_hz) return __rdtsc();
 #endif

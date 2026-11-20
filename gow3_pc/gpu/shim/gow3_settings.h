@@ -65,7 +65,15 @@ struct Values {
     // Graphics (gow3_graphics.h). Live: applied on the next frame.
     std::atomic<int> display_mode{0};
     std::atomic<bool> vsync{true};
+    // gow3 (POSIX, 19 Nov 2026): the game's engine is 30 fps frame-based (TLOU Remastered PS4's
+    // 30 fps mode: one 1/30 step per presented frame); at 60 presented frames every animation
+    // and the physics run at twice speed. POSIX starts at the matching 30; Windows keeps its 60
+    // default (players pick 30 in the menu; README, Frame pacing).
+#ifdef _WIN32
     std::atomic<int> fps_limit{60};
+#else
+    std::atomic<int> fps_limit{30};
+#endif
     std::atomic<bool> async_shaders{true};
     std::atomic<bool> fsr1{false};
     std::atomic<bool> rcas{true};

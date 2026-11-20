@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <immintrin.h>
+#include <mutex>
 #include "common/shared_handle_table.h"
 #include <thread>
 #include <magic_enum/magic_enum.hpp>
@@ -36,6 +37,49 @@ std::shared_ptr<EqueueInternal> GetEqueue(OrbisKernelEqueue eq) {
 static void HrTimerCallback(OrbisKernelEqueue eq,const OrbisKernelEvent& kevent) {
     if (auto equeue=GetEqueue(eq)) {
         equeue->TriggerEvent(kevent.ident,OrbisKernelEvent::Filter::HrTimer,kevent.udata);
+    }
+}
+
+// gow3 diagnostics (GOW3_FRAME_STATS): per-equeue wait rate, once every 5 s. The guest's main
+// loop waits on its flip equeue once per logic tick, so the rate is the tick rate (19 Nov 2026:
+// the animation ran at twice speed; is the guest ticking twice per presented frame?).
+static bool equeue_wait_stats_enabled() {
+    static const bool on = std::getenv("GOW3_FRAME_STATS") != nullptr;
+    return on;
+}
+static void equeue_wait_stats_tick(const char* name, u64 events_out) {
+    struct Entry { char name[48]; u64 calls; u64 events; };
+    static constexpr int MaxEntries = 16;
+    static Entry entries[MaxEntries]{};
+    static std::mutex report_mutex;
+    static auto last = std::chrono::steady_clock::now();
+    {
+        std::scoped_lock lock{report_mutex};
+        Entry* entry = nullptr;
+        for (auto& e : entries) {
+            if (e.name[0] == '\0') { entry = &e; break; }
+            if (std::strcmp(e.name, name) == 0) { entry = &e; break; }
+        }
+        if (entry) {
+            if (entry->name[0] == '\0') {
+                std::snprintf(entry->name, sizeof(entry->name), "%s", name);
+            }
+            entry->calls++;
+            entry->events += events_out;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last >= std::chrono::seconds(5)) {
+            const auto span = std::chrono::duration<double>(now - last).count();
+            for (auto& e : entries) {
+                if (e.name[0])
+                    std::printf("Runtime: guest wait-equeue '%s': %.1f waits/s, %.1f events/s (%.2f per wait)\n",
+                                e.name, (double)e.calls / span, (double)e.events / span,
+                                e.calls ? (double)e.events / e.calls : 0.0);
+                e.calls = 0;
+                e.events = 0;
+            }
+            last = now;
+        }
     }
 }
 static void TimerCallback(OrbisKernelEqueue eq,const OrbisKernelEvent& kevent) {
@@ -624,6 +668,12 @@ int PS4_SYSV_ABI sceKernelWaitEqueue(OrbisKernelEqueue eq, OrbisKernelEvent* ev,
     }
 
     *out = equeue->WaitForEvents(ev, num, timo);
+
+    // gow3 diagnostics (GOW3_FRAME_STATS): the guest's main loop waits on its flip equeue once
+    // per logic tick (19 Nov 2026, the 2x animation speed): the wait rate is the tick rate, and
+    // 'per wait' is the number of queued events drained per wake (2 would mean two flip events
+    // per presented frame).
+    if (equeue_wait_stats_enabled()) equeue_wait_stats_tick(std::string{equeue->GetName()}.c_str(), (u64)(*out));
 
     if (*out == 0) {
         return ORBIS_KERNEL_ERROR_ETIMEDOUT;

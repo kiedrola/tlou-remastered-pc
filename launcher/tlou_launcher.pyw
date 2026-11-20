@@ -2376,7 +2376,10 @@ class Launcher(tk.Tk):
         res = ini.get("output_res", "1920x1080")
         self.resolution = self.choice(panel, row + 1, self.t("resolution"),
                                       RESOLUTIONS + ([res] if res not in RESOLUTIONS else []), res)
-        fps = ini.get("fps_limit", "60")
+        # The game's engine is 30 fps frame-based (TLOU Remastered PS4): at 60 presented frames
+        # every animation runs at twice speed. POSIX defaults to the matching 30; Windows keeps
+        # its 60 (players pick 30 in the menu; README, Frame pacing).
+        fps = ini.get("fps_limit", "30" if sys.platform != "win32" else "60")
         self.fps = self.choice(panel, row + 2, self.t("fps"), FPS if fps in FPS else FPS + [fps], fps)
         self.upscaler_labels = self.labels(UPSCALERS)
         self.upscaler = self.choice(panel, row + 3, self.t("upscaler"), list(self.upscaler_labels),

@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <chrono>
+#include <cstdio>
+
 #include "common/assert.h"
 #include "common/elf_info.h"
 #include "common/logging/log.h"
@@ -18,6 +21,24 @@ extern std::unique_ptr<Vulkan::Presenter> presenter;
 namespace Libraries::VideoOut {
 
 static std::unique_ptr<VideoOutDriver> driver;
+
+// gow3 diagnostics (GOW3_FRAME_STATS): how often the guest reads the flip/vblank status. The
+// game reads it once per frame-tick for its delta time, so this is the tick rate (19 Nov 2026:
+// the animation ran at twice speed; is the guest ticking twice per presented frame?).
+static void guest_status_read_rate(const char* what) {
+    static const bool on = std::getenv("GOW3_FRAME_STATS") != nullptr;
+    if (!on) return;
+    static u64 count = 0;
+    static auto last = std::chrono::steady_clock::now();
+    count++;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last >= std::chrono::seconds(5)) {
+        const auto span = std::chrono::duration<double>(now - last).count();
+        std::printf("Runtime: guest %s reads: %.1f/s\n", what, (double)count / span);
+        count = 0;
+        last = now;
+    }
+}
 
 void PS4_SYSV_ABI sceVideoOutSetBufferAttribute(BufferAttribute* attribute, PixelFormat pixelFormat,
                                                 u32 tilingMode, u32 aspectRatio, u32 width,
@@ -140,6 +161,9 @@ s32 PS4_SYSV_ABI sceVideoOutRegisterBuffers(s32 handle, s32 startIndex, void* co
 
 s32 PS4_SYSV_ABI sceVideoOutSetFlipRate(s32 handle, s32 rate) {
     LOG_TRACE(Lib_VideoOut, "called");
+    // gow3 diagnostics (19 Nov 2026, the 2x animation speed): the rate the guest asked for, on
+    // every call (a 30 FPS game on a 60 Hz display asks for 1: flip every second vblank).
+    std::printf("Runtime: guest set flip rate %d\n", rate);
     driver->GetPort(handle)->flip_rate = rate;
     return ORBIS_OK;
 }
@@ -242,6 +266,7 @@ s32 PS4_SYSV_ABI sceVideoOutGetEventCount(const Kernel::OrbisKernelEvent* ev) {
 }
 
 s32 PS4_SYSV_ABI sceVideoOutGetFlipStatus(s32 handle, FlipStatus* status) {
+    guest_status_read_rate("flip status");
     if (!status) {
         LOG_ERROR(Lib_VideoOut, "Flip status is null");
         return ORBIS_VIDEO_OUT_ERROR_INVALID_ADDRESS;
@@ -269,6 +294,7 @@ s32 PS4_SYSV_ABI sceVideoOutGetFlipStatus(s32 handle, FlipStatus* status) {
 }
 
 s32 PS4_SYSV_ABI sceVideoOutGetVblankStatus(int handle, SceVideoOutVblankStatus* status) {
+    guest_status_read_rate("vblank status");
     if (status == nullptr) {
         return ORBIS_VIDEO_OUT_ERROR_INVALID_ADDRESS;
     }

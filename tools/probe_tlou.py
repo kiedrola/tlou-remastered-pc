@@ -705,6 +705,17 @@ def main():
     if update:
         command += ["--app0-overlay", str(update)]
     command += ["--guest-path", "/app0/eboot.bin"]
+    # GOW3_GUEST_ARGS=<args...>: extra arguments for the game's main (the engine's debug options,
+    # eboot.bin's "t1ps4 <levelname> ... forcefps <number> ..." help screen; 19 Nov 2026, the
+    # animation-speed bug). The PS4 system passes the app's launch parameters to the app's main.
+    guest_args = os.environ.get("GOW3_GUEST_ARGS", "").strip()
+    if guest_args:
+        # One --guest-arg per word: the engine's parser expects each token (e.g. "forcefps"
+        # and "30") as a separate argv entry.
+        words = guest_args.split()
+        for word in words:
+            command += ["--guest-arg", word]
+        print(f"Guest args: {' '.join(words)}")
     # TLOU_CHEATS=<name>,...: the cheats above (default: flashlight; "none": no cheats).
     # TLOU_FIXES=none leaves out the fixes.
     patches = dict(FIXES) if os.environ.get("TLOU_FIXES") != "none" else {}
