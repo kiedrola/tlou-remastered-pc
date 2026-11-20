@@ -1298,12 +1298,27 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
 ImageId TextureCache::FindImageFromRange(VAddr address, size_t size, bool ensure_valid) {
     ImageIds image_ids;
     // spartanport: exact-address candidates all occur in the first page of the range.
-    ForEachImageWithAddress(address, [&](ImageId image_id, Image& image) {
+    // gow3 19 Nov 2026: GOW3_IMAGE_FIRST_PAGE=0 (launcher debug menu) walks every page of the
+    // range, as before 964cfa9.
+    static const bool first_page = [] {
+        const char* env = std::getenv("GOW3_IMAGE_FIRST_PAGE");
+        return !(env && env[0] == '0');
+    }();
+    const auto take = [&](ImageId image_id, Image& image) {
         if (ensure_valid && !image.SafeToDownload()) {
             return;
         }
         image_ids.push_back(image_id);
-    });
+    };
+    if (first_page) {
+        ForEachImageWithAddress(address, take);
+    } else {
+        ForEachImageInRegion(address, size, [&](ImageId image_id, Image& image) {
+            if (image.info.guest_address == address) {
+                take(image_id, image);
+            }
+        });
+    }
     if (image_ids.size() == 1) {
         // Sometimes image size might not exactly match with requested buffer size
         // If we only found 1 candidate image use it without too many questions.

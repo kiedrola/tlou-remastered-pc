@@ -75,13 +75,17 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         (key == "mouse" ? v.mouse : key == "mouse_invert" ? v.mouse_invert : v.mouse_invert_x) = i != 0;
         return;
     }
-    if (key == "mouse_aim_sens" || key == "mouse_vertical") {
-        (key == "mouse_aim_sens" ? v.mouse_aim_sens : v.mouse_vertical) =
-            f > 0.0f ? Clamp(f, 0.1f, 10.0f) : 1.0f;
+    /* 20 Nov 2026: mouse and aim sensitivity 10-500%, scope 10-200%. */
+    if (key == "mouse_aim_sens" || key == "mouse_sens") {
+        (key == "mouse_aim_sens" ? v.mouse_aim_sens : v.mouse_sens) = f > 0.0f ? Clamp(f, 0.1f, 5.0f) : 1.0f;
         return;
     }
-    if (key == "mouse_sens") {
-        v.mouse_sens = f > 0.0f ? Clamp(f, 0.1f, 10.0f) : 1.0f;
+    if (key == "mouse_vertical") {
+        v.mouse_vertical = f > 0.0f ? Clamp(f, 0.1f, 10.0f) : 1.0f;
+        return;
+    }
+    if (key == "mouse_scope_sens") {
+        v.mouse_scope_sens = f > 0.0f ? Clamp(f, 0.1f, 2.0f) : 1.0f;
         return;
     }
     if (key == "walk_toggle") {
@@ -113,7 +117,9 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         return;
     }
     if (key == "menu_shortcut") {
-        v.menu_shortcut = value == "view_menu" ? 1 : value == "keyboard" ? 2 : value == "custom" ? 3 : 0;
+        // "lt_r3" was the default until 18 Nov and every settings file has it: the keyboard key
+        // alone now (LT + R3 again under its new name, lt_rs).
+        v.menu_shortcut = value == "lt_rs" ? 0 : value == "view_menu" ? 1 : value == "custom" ? 3 : 2;
         return;
     }
     const char* cheat_keys[] = {"cheat_health", "cheat_magic", "cheat_item", "cheat_rage", "cheat_orbs",
@@ -291,7 +297,7 @@ void Load() {
         {"GOW3_MOUSE_MAP", "mouse_map"},              {"GOW3_MOUSE", "mouse"},
         {"GOW3_MOUSE_SENS", "mouse_sens"},            {"GOW3_MOUSE_INVERT", "mouse_invert"},
         {"GOW3_MOUSE_AIM_SENS", "mouse_aim_sens"},    {"GOW3_MOUSE_VERTICAL", "mouse_vertical"},
-        {"GOW3_MOUSE_INVERT_X", "mouse_invert_x"},
+        {"GOW3_MOUSE_INVERT_X", "mouse_invert_x"},     {"GOW3_MOUSE_SCOPE_SENS", "mouse_scope_sens"},
         {"GOW3_PROMPTS", "prompts"},                  {"GOW3_STICK_SPEED", "stick_speed"},
         {"GOW3_WALK_TOGGLE", "walk_toggle"},          {"GOW3_WALK_SPEED", "walk_speed"},
         {"GOW3_VIBRATION", "vibration"},
@@ -448,15 +454,15 @@ KeyValues Current() {
     // Read by run.sh at start.
     Append(text, "live_resolution=%s\n", v.live_resolution < 0 ? "auto"
                                                   : v.live_resolution ? "1" : "0");
-    static const char* const shortcuts[] = {"lt_r3", "view_menu", "keyboard", "custom"};
+    static const char* const shortcuts[] = {"lt_rs", "view_menu", "keyboard", "custom"};
     Append(text, "menu_shortcut=%s\n", shortcuts[std::clamp(v.menu_shortcut.load(), 0, 3)]);
     Append(text, "fade_distance=%d\nsun_shadow_distance=%d\nlight_shadow_distance=%d\n", v.fade_distance.load(),
            v.sun_shadow_distance.load(), v.light_shadow_distance.load());
     Append(text, "mouse=%d\nmouse_sens=%.2f\nmouse_invert=%d\nprompts=%s\nstick_speed=%.2f\n",
            int(v.mouse.load()), v.mouse_sens.load(), int(v.mouse_invert.load()), PromptsName(v.prompts),
            v.stick_speed.load());
-    Append(text, "mouse_aim_sens=%.2f\nmouse_vertical=%.2f\nmouse_invert_x=%d\n", v.mouse_aim_sens.load(),
-           v.mouse_vertical.load(), int(v.mouse_invert_x.load()));
+    Append(text, "mouse_aim_sens=%.2f\nmouse_vertical=%.2f\nmouse_invert_x=%d\nmouse_scope_sens=%.2f\n",
+           v.mouse_aim_sens.load(), v.mouse_vertical.load(), int(v.mouse_invert_x.load()), v.mouse_scope_sens.load());
     Append(text, "walk_toggle=%d\nwalk_speed=%.2f\nvibration=%d\n", int(v.walk_toggle.load()), v.walk_speed.load(),
            int(v.vibration.load()));
     {
@@ -476,6 +482,9 @@ KeyValues Current() {
 }
 
 void Save() {
+    // The overlay menu (window thread) and the game's PC settings page (the game's menu thread).
+    static std::mutex mutex;
+    std::scoped_lock lock{mutex};
     // Keys the in-game menu left alone since the game last read or wrote the file keep the
     // file's value: the launcher may have changed them while the game ran (it used to be
     // overwritten with the game's older value, e.g. a 165 FPS limit after choosing 60).
@@ -553,6 +562,10 @@ extern "C" float gow3gpu_controls_mouse_aim_sens(void) {
     return Gow3Settings::Get().mouse_aim_sens;
 }
 
+extern "C" float gow3gpu_controls_mouse_scope_sens(void) {
+    return Gow3Settings::Get().mouse_scope_sens;
+}
+
 extern "C" float gow3gpu_controls_mouse_vertical(void) {
     return Gow3Settings::Get().mouse_vertical;
 }
@@ -579,4 +592,121 @@ extern "C" int gow3gpu_settings_sun_shadow_distance(void) {
 
 extern "C" int gow3gpu_settings_light_shadow_distance(void) {
     return Gow3Settings::Get().light_shadow_distance;
+}
+
+// The game's Options > PC SETTINGS page (src/runtime_menu_pc.c): the game's toggles and
+// sliders show these values.
+namespace {
+int Percent(float value) {
+    return int(value * 100.0f + 0.5f);
+}
+/// The anti-aliasing choices the overlay menu offers (Image tab), in its order; only Off when
+/// temporal anti-aliasing is not available in this game.
+int AntiAliasingChoices(int* out) {
+    const auto& s = Gow3Settings::Get();
+    int count = 0;
+    out[count++] = Gow3Settings::UpscalerOff;
+    if (!s.temporal_aa_available) return count;
+    out[count++] = Gow3Settings::UpscalerTaa;
+    out[count++] = Gow3Settings::UpscalerFsr3;
+    if (s.fsr4_supported) out[count++] = Gow3Settings::UpscalerFsr4;
+    if (s.dlss_supported) out[count++] = Gow3Settings::UpscalerDlss;
+    return count;
+}
+int AntiAliasingIndex() {
+    const int upscaler = Gow3Settings::Get().upscaler;
+    int choices[5];
+    const int count = AntiAliasingChoices(choices);
+    for (int i = 0; i < count; ++i) {
+        if (choices[i] == upscaler || (Gow3Settings::IsFsr4(upscaler) && Gow3Settings::IsFsr4(choices[i]))) return i;
+    }
+    return 0;
+}
+} // namespace
+
+extern "C" int gow3gpu_pc_setting(int setting) {
+    namespace G = Gow3Graphics;
+    const auto& s = Gow3Settings::Get();
+    switch (setting) {
+    case GOW3_PC_DISPLAY_MODE: return s.display_mode;
+    case GOW3_PC_VSYNC: return s.vsync ? 1 : 0;
+    case GOW3_PC_FPS_LIMIT: return std::max(0, G::IndexOf(G::FpsLimits, s.fps_limit.load(), int(G::FpsLimits.size()) - 1));
+    case GOW3_PC_ANTI_ALIASING: return AntiAliasingIndex();
+    case GOW3_PC_SHARPENING: return s.rcas_strength;
+    case GOW3_PC_PERF_OVERLAY: return s.show_fps ? 1 : 0;
+    case GOW3_PC_MOUSE_SENS: return Percent(s.mouse_sens);
+    case GOW3_PC_MOUSE_AIM_SENS: return Percent(s.mouse_aim_sens);
+    case GOW3_PC_MOUSE_SCOPE_SENS: return Percent(s.mouse_scope_sens);
+    case GOW3_PC_MOUSE_VERTICAL: return Percent(s.mouse_vertical);
+    case GOW3_PC_MOUSE_INVERT: return s.mouse_invert ? 1 : 0;
+    case GOW3_PC_VIBRATION: return s.vibration ? 1 : 0;
+    default: return 0;
+    }
+}
+
+extern "C" int gow3gpu_pc_setting_count(int setting) {
+    switch (setting) {
+    case GOW3_PC_DISPLAY_MODE: return Gow3Graphics::DisplayModeCount;
+    case GOW3_PC_FPS_LIMIT: return int(Gow3Graphics::FpsLimits.size());
+    case GOW3_PC_ANTI_ALIASING: {
+        int choices[5];
+        return AntiAliasingChoices(choices);
+    }
+    default: return 2;
+    }
+}
+
+extern "C" const char* gow3gpu_pc_setting_choice(int setting, int index) {
+    namespace G = Gow3Graphics;
+    if (setting == GOW3_PC_FPS_LIMIT) {
+        static const char* const names[] = {"30", "40", "45", "50", "55", "60", "75", "90", "100", "120"};
+        static_assert(std::size(names) == G::FpsLimits.size());
+        return index >= 0 && index < int(std::size(names)) ? names[index] : nullptr;
+    }
+    if (setting == GOW3_PC_ANTI_ALIASING) {
+        int choices[5];
+        const int count = AntiAliasingChoices(choices);
+        if (index < 0 || index >= count) return nullptr;
+        switch (choices[index]) {
+        case Gow3Settings::UpscalerTaa: return "TAA";
+        case Gow3Settings::UpscalerFsr3: return "FSR 3.1";
+        case Gow3Settings::UpscalerFsr4: return "FSR 4";
+        case Gow3Settings::UpscalerDlss: return "DLAA";
+        default: return "Off";
+        }
+    }
+    return nullptr;
+}
+
+extern "C" void gow3gpu_pc_setting_set(int setting, int value) {
+    namespace G = Gow3Graphics;
+    auto& s = Gow3Settings::Get();
+    bool controls = false;
+    switch (setting) {
+    case GOW3_PC_DISPLAY_MODE: s.display_mode = std::clamp(value, 0, G::DisplayModeCount - 1); break;
+    case GOW3_PC_VSYNC: s.vsync = value != 0; break;
+    case GOW3_PC_FPS_LIMIT: s.fps_limit = G::FpsLimits[std::clamp(value, 0, int(G::FpsLimits.size()) - 1)]; break;
+    case GOW3_PC_ANTI_ALIASING: {
+        int choices[5];
+        const int count = AntiAliasingChoices(choices);
+        const int upscaler = choices[std::clamp(value, 0, count - 1)];
+        // FSR 4.1.1 stays as it is when FSR 4 is chosen (the overlay shows both as FSR 4).
+        if (!(Gow3Settings::IsFsr4(upscaler) && Gow3Settings::IsFsr4(s.upscaler))) s.upscaler = upscaler;
+        break;
+    }
+    case GOW3_PC_SHARPENING: s.rcas_strength = std::clamp(value, 0, 100); break;
+    case GOW3_PC_PERF_OVERLAY: s.show_fps = value != 0; break;
+    case GOW3_PC_MOUSE_SENS: s.mouse_sens = std::clamp(value, 10, 500) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_AIM_SENS: s.mouse_aim_sens = std::clamp(value, 10, 500) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_SCOPE_SENS: s.mouse_scope_sens = std::clamp(value, 10, 200) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_VERTICAL: s.mouse_vertical = std::clamp(value, 25, 300) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_INVERT: s.mouse_invert = value != 0; controls = true; break;
+    case GOW3_PC_VIBRATION: s.vibration = value != 0; controls = true; break;
+    default: return;
+    }
+    if (controls) Gow3Settings::ControlsChanged();
+}
+
+extern "C" void gow3gpu_pc_settings_save(void) {
+    Gow3Settings::Save();
 }

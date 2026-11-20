@@ -623,6 +623,24 @@ extern "C" int gow3gpu_overlay_captures_input(void) {
     return Gow3Overlay::CapturesInput() ? 1 : 0;
 }
 
+extern "C" void gow3gpu_preview_begin(const char* const* images, int count) {
+    std::vector<Gow3Png::Image> pictures(std::max(count, 0));
+    for (int i = 0; images && i < count; ++i) {
+        if (images[i] && !Gow3Png::LoadRgba(images[i], pictures[i])) {
+            LOG_WARNING(Lib_SaveDataDialog, "save list: no picture from {}", images[i]);
+        }
+    }
+    Gow3Overlay::SetPreviewPictures(std::move(pictures));
+}
+
+extern "C" void gow3gpu_preview_show(int index) {
+    Gow3Overlay::ShowPreview(index);
+}
+
+extern "C" void gow3gpu_settings_menu_open(void) {
+    Gow3Overlay::RequestOpen();
+}
+
 extern "C" int gow3gpu_text_input_begin(const char* initial, const char* prompt) {
     if (!g_window) return 0;
     g_window->BeginTextInput(initial ? initial : "", prompt ? prompt : "Text");
@@ -678,6 +696,14 @@ extern "C" int gow3gpu_choice_poll(void) {
         return pick;
     }
     return Gow3Overlay::PollChoice();
+}
+
+// The window thread ends the game as it does for the window's close button.
+extern "C" void gow3gpu_request_exit(void) {
+    SDL_Event quit{};
+    quit.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&quit);
+    WakeWindowThread();
 }
 
 extern "C" int gow3gpu_text_input_poll(char* out, uint64_t size) {

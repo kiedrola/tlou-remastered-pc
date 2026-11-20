@@ -22,6 +22,13 @@
 
 #include <vk_mem_alloc.h>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace VideoCore {
 void DescribeGpuMemory(u64 memory, u64 offset);
 void FlushImageReaper(); // texture_cache/image.cpp
@@ -714,9 +721,24 @@ bool Instance::CreateDevice() {
     // every submission of the GPU command thread: 0.3-0.8 s freezes, the
     // thread neither idle nor in any counted wait. GOW3_PRESENT_QUEUE=0: presents on the
     // graphics queue, as before.
+    // gow3 20 Nov 2026 (#48): RivaTuner Statistics Server draws its on-screen display inside
+    // vkQueuePresentKHR, and with presents on their own queue the display was missing from ~7% of
+    // the frames (the flicker players report; measured on a GTX 1050 Ti, 100% with presents on the
+    // graphics queue). With RTSS's hook DLL in the process, presents go to the graphics queue
+    // unless GOW3_PRESENT_QUEUE=1 asks for their own queue.
+    static const bool rtss_loaded = [] {
+#ifdef _WIN32
+        return GetModuleHandleW(L"RTSSHooks64.dll") != nullptr;
+#else
+        return false;
+#endif
+    }();
     static const bool present_queue_wanted = [] {
         const char* env = std::getenv("GOW3_PRESENT_QUEUE");
-        return !(env && env[0] == '0');
+        if (env && env[0] != '\0') {
+            return env[0] != '0';
+        }
+        return !rtss_loaded;
     }();
     static constexpr std::array queue_priorities = {1.0f, 1.0f, 1.0f};
     const u32 queue_count =
@@ -1033,7 +1055,9 @@ bool Instance::CreateDevice() {
     std::printf("GPU: presents on %s\n",
                 queue_count > 2 ? "their own queue (GOW3_PRESENT_QUEUE=0: the graphics queue)"
                 : present_queue_wanted ? "the graphics queue (the family has no third queue)"
-                                       : "the graphics queue (GOW3_PRESENT_QUEUE=0)");
+                : rtss_loaded && !std::getenv("GOW3_PRESENT_QUEUE")
+                    ? "the graphics queue (RivaTuner overlay loaded; GOW3_PRESENT_QUEUE=1: own queue)"
+                    : "the graphics queue (GOW3_PRESENT_QUEUE=0)");
     sparse_queue = sparse_queue_family_index == queue_family_index
                        ? graphics_queue
                        : device->getQueue(sparse_queue_family_index, 0);

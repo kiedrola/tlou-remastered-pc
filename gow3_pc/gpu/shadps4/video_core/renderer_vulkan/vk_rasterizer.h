@@ -695,6 +695,7 @@ private:
         u64 position;
     };
     std::vector<PendingWrite> pending_writes;
+    size_t pending_writes_max = 0; ///< largest pending_writes since the last Sizes line
     VAddr pending_min = ~VAddr{0}, pending_max = 0; ///< bounds of pending_writes
     u32 pending_checks = 0;
     /// gow3 26 Oct 2026: the 64 KiB granules pending_writes cover, hashed into a bit each (set
@@ -706,6 +707,7 @@ private:
     std::array<u64, PendingFilterBits / 64> pending_filter{};
     void FilterPendingRange(VAddr begin, VAddr end);
     bool PendingFilterHit(VAddr begin, VAddr end) const;
+    void TrimPendingWrites(); ///< drops the entries stage B has written, rebuilds bounds and filter
     /// gow3 21 Oct 2026 (GOW3_PIPE_WRITE_END): writes noted for the packet PostDraw is building
     /// take this position until it is committed (then its end: stage B has run it once there).
     static constexpr u64 PendingUncommitted = ~u64{0};

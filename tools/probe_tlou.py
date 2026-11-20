@@ -150,6 +150,10 @@ CHEATS = {
     # writes xmm1, the level before the drain, so the flashlight never flickers and needs no shake
     # of a DualShock 4's motion sensors. The cheat jumps to a code cave holding that instruction;
     # it is the same length, so it is written in place.
+    # The countdown it holds (+0x7d4 of the player's flashlight) is the wait of the flicker
+    # sequence's current step: about 360-400 s before the first flicker in the areas checked on
+    # 17 Nov 2026, then short steps, and at the last step (31) a flicker every few seconds until
+    # the controller is shaken. tools/flashlight_probe.py --force starts a flicker in a running game.
     "flashlight": [(0x697B98, "C4C17A1195D4070000", "C4C17A118DD4070000")],
 }
 # Idle job workers sleep (TLOU_JOB_SLEEP=0 keeps them spinning). The engine's 6 NdJobWorkerThreads spin on their job
@@ -716,7 +720,8 @@ def main():
         for word in words:
             command += ["--guest-arg", word]
         print(f"Guest args: {' '.join(words)}")
-    # TLOU_CHEATS=<name>,...: the cheats above (default: flashlight; "none": no cheats).
+    # TLOU_CHEATS=<name>,...: the cheats above (default: flashlight, unless flashlight_fix=0 in
+    # tlou.ini; "none": no cheats).
     # TLOU_FIXES=none leaves out the fixes.
     patches = dict(FIXES) if os.environ.get("TLOU_FIXES") != "none" else {}
     if os.environ.get("TLOU_JOB_SLEEP") != "0":
@@ -741,6 +746,13 @@ def main():
     aim_assist = os.environ.get("TLOU_AIM_ASSIST") or ini_value(Path(env["GOW3_CONFIG"]), "aim_assist")
     if (aim_assist or "1").strip() == "0":
         patches["aim-assist-off"] = aim_assist_off_patch()
+    # The launcher's Controls > DirectInput controller (dinput, dinput_buttons, dinput_axes in
+    # tlou.ini; src/runtime_pad.c): GOW3_DINPUT* set outside win.
+    for key, name in (("dinput", "GOW3_DINPUT"), ("dinput_buttons", "GOW3_DINPUT_BUTTONS"),
+                      ("dinput_axes", "GOW3_DINPUT_AXES")):
+        value = (ini_value(Path(env["GOW3_CONFIG"]), key) or "").strip()
+        if value:
+            env.setdefault(name, value)
     chosen = os.environ.get("TLOU_RESOLUTION") or ini_value(Path(env["GOW3_CONFIG"]), "output_res")
     size = parse_size(chosen) or RENDER_DEFAULT
     if chosen and not parse_size(chosen):
@@ -766,7 +778,13 @@ def main():
     aspect_name = f"aspect ratio {output[0]}:{output[1]}"
     if not is_16_9(output) and os.environ.get("TLOU_ASPECT") != "0":
         patches[aspect_name] = aspect_patch(output)
-    for name in [c.strip() for c in os.environ.get("TLOU_CHEATS", "flashlight").split(",") if c.strip()]:
+    # The launcher's Controls > Flashlight (flashlight_fix in tlou.ini, default on) chooses the
+    # flashlight cheat; TLOU_CHEATS set outside wins.
+    cheats = os.environ.get("TLOU_CHEATS")
+    if cheats is None:
+        flashlight = (ini_value(Path(env["GOW3_CONFIG"]), "flashlight_fix") or "1").strip()
+        cheats = "none" if flashlight == "0" else "flashlight"
+    for name in [c.strip() for c in cheats.split(",") if c.strip()]:
         if name in CHEATS:
             patches[name] = CHEATS[name]
         elif name != "none":

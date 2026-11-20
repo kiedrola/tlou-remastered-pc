@@ -11,15 +11,15 @@
 // invalidates them, and they upload again at their next use. runtime_pad.c picks the device
 // (GOW3_PROMPTS); GOW3_PROMPTS_LOG=1 logs the hash of each candidate upload. The Last of Us
 // Remastered's 256x512 atlas is redrawn the same way. Its world prompts and menu tabs come from one
-// HUD sprite shader whose textures change every session: those draws are recognised by their quad
-// (ClassifyQuad) and get the redrawn atlas cell bound instead.
+// HUD sprite shader drawing fixed pictures of hud.pak: those draws are recognised by the hash of
+// their two textures (known_prompts) and get the redrawn atlas cell bound instead; an unknown
+// picture keeps the game's icon.
 
 #include "gow3_prompts.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -42,6 +42,8 @@
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/texture_cache/image.h"
+#include <filesystem>
+#include <miniz.h>
 #endif
 
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -239,6 +241,48 @@ public:
                 const float t = d <= 0.0f ? 1.0f : std::max(0.0f, 1.0f - d / radius);
                 if (t > 0.0f) {
                     Over(x, y, color, t * t * opacity);
+                }
+            }
+        }
+    }
+    // A picture (premultiplied RGBA floats, sw x sh) fitted into a bw x bh box centred on (cx, cy),
+    // its aspect kept; smaller than the picture: several filtered samples per pixel.
+    void Picture(const float* src, int sw, int sh, float cx, float cy, float bw, float bh) {
+        const float scale = std::min(bw / sw, bh / sh);
+        if (!(scale > 0.0f)) {
+            return;
+        }
+        const float left = cx - sw * scale / 2, top = cy - sh * scale / 2;
+        const int n = std::clamp(int(std::ceil(1.0f / scale)), 1, 8);
+        const auto at = [&](int x, int y) {
+            return &src[(std::clamp(y, 0, sh - 1) * sw + std::clamp(x, 0, sw - 1)) * 4];
+        };
+        for (int y = y0; y < y1; ++y) {
+            for (int x = x0; x < x1; ++x) {
+                float sum[4]{};
+                for (int j = 0; j < n; ++j) {
+                    for (int i = 0; i < n; ++i) {
+                        const float sx = (x + (i + 0.5f) / n - left) / scale - 0.5f;
+                        const float sy = (y + (j + 0.5f) / n - top) / scale - 0.5f;
+                        if (sx < -0.5f || sy < -0.5f || sx > sw - 0.5f || sy > sh - 0.5f) {
+                            continue;
+                        }
+                        const int ix = int(std::floor(sx)), iy = int(std::floor(sy));
+                        const float fx = sx - ix, fy = sy - iy;
+                        const float *a = at(ix, iy), *b = at(ix + 1, iy), *c = at(ix, iy + 1), *d = at(ix + 1, iy + 1);
+                        for (int k = 0; k < 4; ++k) {
+                            sum[k] += (a[k] * (1 - fx) + b[k] * fx) * (1 - fy) + (c[k] * (1 - fx) + d[k] * fx) * fy;
+                        }
+                    }
+                }
+                const float inv = 1.0f / float(n * n);
+                if (sum[3] * inv > 0.0f) {
+                    float* p = &canvas.texels[(y * canvas.w + x) * 4];
+                    const float a = std::min(sum[3] * inv, 1.0f);
+                    for (int k = 0; k < 3; ++k) {
+                        p[k] = sum[k] * inv + p[k] * (1.0f - a);
+                    }
+                    p[3] = a + p[3] * (1.0f - a);
                 }
             }
         }
@@ -512,6 +556,34 @@ void DrawMouse(Painter& p, Pass pass, float cx, float cy, float h, float room, M
     }
 }
 
+// The controller icons sheet (xbox-icons.png beside the settings file, GOW3_CONFIG): the player's
+// own pictures for the Xbox-style buttons, 4 columns x 3 rows of square cells in SheetNames' order
+// (any cell size; 128 in the default). A transparent cell keeps the drawn button. The game writes
+// xbox-icons-default.png there at each start, the drawn buttons, to start from.
+constexpr const char* SheetNames[] = {"A", "B", "X", "Y", "LB", "RB", "LT", "RT", "LS", "RS", "MENU", "VIEW"};
+constexpr int SheetColumns = 4, SheetRows = 3, SheetCellSize = 128;
+constexpr int SheetCount = SheetColumns * SheetRows;
+
+struct Sheet {
+    int cell_w = 0, cell_h = 0;
+    std::array<std::vector<float>, SheetCount> cells; // premultiplied RGBA; empty: drawn button
+};
+
+// The sheet used while the labels render (gow3gpu_prompts_set_labels); null: the drawn buttons.
+thread_local const Sheet* t_sheet = nullptr;
+
+const std::vector<float>* SheetCell(const std::string& name) {
+    if (!t_sheet) {
+        return nullptr;
+    }
+    for (int i = 0; i < SheetCount; ++i) {
+        if (name == SheetNames[i]) {
+            return t_sheet->cells[i].empty() ? nullptr : &t_sheet->cells[i];
+        }
+    }
+    return nullptr;
+}
+
 // Controller buttons in the Xbox style ("#A" "#B" "#X" "#Y" "#LB" "#RB" "#LT" "#RT" "#LS" "#RS"
 // "#MENU" "#VIEW"): dark buttons with light rims; the face buttons' letters and glows in their
 // colours.
@@ -551,6 +623,12 @@ void DrawShape(Painter& p, Pass pass, Sdf&& outer, float edge, float top, float 
 
 void DrawPadButton(Painter& p, Pass pass, float cx, float cy, float w, float h, const std::string& token) {
     const std::string name = token.substr(1);
+    if (const auto* picture = SheetCell(name)) { // the player's picture: no drawn glow around it
+        if (pass == Pass::Body) {
+            p.Picture(picture->data(), t_sheet->cell_w, t_sheet->cell_h, cx, cy, w, h);
+        }
+        return;
+    }
     const float side = std::min(w, h);
     const float edge = std::max(1.4f, 0.06f * side);
     if (name.size() == 1) { // A B X Y
@@ -1227,12 +1305,6 @@ State& GetState() {
     return state;
 }
 std::atomic<int> device{0}; // 0 the game's PlayStation icons, 1 keyboard and mouse, 2 other controller
-std::atomic<u32> s_memo_generation{0}; // a change: the recognised floating prompts are forgotten
-
-void ClearFloatingPromptMemo() {
-    s_memo_generation.fetch_add(1, std::memory_order_relaxed);
-}
-
 void InvalidateSeen() {
     std::vector<std::pair<VAddr, u32>> seen;
     {
@@ -1278,6 +1350,10 @@ std::shared_ptr<const Texels> MakePicture(const KnownTexture& known, const u8* g
     }
     return texels;
 }
+
+#ifndef GOW3_PROMPTS_TEST
+void ExportPlayStationSheet(const u8* guest); // below, with the other sheet files
+#endif
 
 } // namespace
 
@@ -1338,6 +1414,10 @@ std::shared_ptr<const Texels> Replacement(VAddr address, u32 guest_size, u32 mip
         if (hash != TlouAtlasHash) {
             return nullptr;
         }
+#ifndef GOW3_PROMPTS_TEST
+        static std::once_flag reference;
+        std::call_once(reference, ExportPlayStationSheet, guest);
+#endif
         if (std::find(state.seen.begin(), state.seen.end(), std::pair{address, guest_size}) == state.seen.end()) {
             state.seen.emplace_back(address, guest_size);
         }
@@ -1398,102 +1478,6 @@ std::shared_ptr<const Texels> Replacement(VAddr address, u32 guest_size, u32 mip
 struct PromptQuad {
     float cx, cy, w, h, W, H;
     float r, g, b, a;
-};
-
-// The button a prompt quad shows (GOW3_PROMPT_*), or -1. Measured at 1920x1080; sizes and distances
-// from the canvas edges are in canvas heights. World prompts can be outside the canvas on a wider display.
-// near_world_prompt: a world prompt was drawn close by just before (an NPC talk badge, not a grab).
-int ClassifyQuad(const PromptQuad& q, bool near_world_prompt) {
-    const float size_w = q.w / q.H, size_h = q.h / q.H;
-    const float left = q.cx / q.H, right = (q.W - q.cx) / q.H, top = q.cy / q.H;
-    const auto sized = [&](float lo, float hi) {
-        return size_w >= lo && size_w <= hi && size_h >= lo && size_h <= hi;
-    };
-    const auto mono = [&](float tolerance) {
-        return std::fabs(q.r - q.g) < tolerance && std::fabs(q.g - q.b) < tolerance && q.a > 0.01f;
-    };
-    // Backpack and crafting tabs: grey quads at the top, L1 the left one.
-    if (sized(0.070f, 0.110f) && top >= 0.06f && top <= 0.20f && mono(0.10f)) {
-        return right > 0.569f ? GOW3_PROMPT_L1 : GOW3_PROMPT_R1;
-    }
-    const bool low = top > 0.70f;
-    const bool white = q.r > 0.55f && q.g > 0.55f && q.b > 0.55f && mono(0.12f);
-    if (low && left > 0 && left < 0.444f && sized(0.020f, 0.200f) && mono(0.12f)) {
-        return GOW3_PROMPT_L3; // the hint prompt: it pulses in size and brightness
-    }
-    if (sized(0.015f, 0.070f) && white) { // world prompts grow from small as they fade in
-        const bool widget = right > 0 && ((low && right < 0.356f) || (top >= 0.06f && top <= 0.20f && right < 0.8f));
-        return widget ? -1 : GOW3_PROMPT_TRIANGLE;
-    }
-    // Grabs and struggles: a larger quad in the middle of the screen.
-    if (sized(0.080f, 0.160f) && std::fabs(q.cx - q.W / 2) / q.H < 0.267f && top > 0.40f && top < 0.70f &&
-        mono(0.15f) && !near_world_prompt) {
-        return GOW3_PROMPT_SQUARE;
-    }
-    return -1;
-}
-
-// Prompts already recognised (render thread only). A prompt that fades in or pulses leaves the
-// rules' sizes: it keeps its button by its texture (up to 2.5 times the size), or by its place for StickyMs.
-class PromptMemory {
-public:
-    int Resolve(const PromptQuad& q, VAddr address, u64 hash, int button, s64 now_ms) {
-        const float x = q.cx / q.H, y = q.cy / q.H, size = std::max(q.w, q.h) / q.H;
-        Entry* found = nullptr;
-        for (Entry& e : entries) {
-            const bool same_texture = e.address == address && e.hash == hash;
-            const bool near_place = now_ms - e.seen_ms < StickyMs && std::hypot(x - e.x, y - e.y) < 0.05f;
-            if (button >= 0 ? same_texture && e.button == button
-                            : size < 2.5f * e.size && (same_texture || (near_place && size > 0.4f * e.size))) {
-                found = &e;
-                break;
-            }
-        }
-        if (button < 0) {
-            if (!found) {
-                return -1;
-            }
-            found->x = x, found->y = y, found->seen_ms = now_ms;
-            return found->button;
-        }
-        if (!found) {
-            if (entries.size() < Capacity) {
-                found = &entries.emplace_back();
-            } else {
-                found = &*std::min_element(entries.begin(), entries.end(),
-                                           [](const Entry& a, const Entry& b) { return a.seen_ms < b.seen_ms; });
-            }
-        }
-        *found = {address, hash, button, x, y, size, now_ms};
-        return button;
-    }
-    void Clear() {
-        entries.clear();
-    }
-    // Whether a quad the rules did not match could still resolve to a remembered prompt (its texture
-    // address or its place): otherwise the caller skips reading and hashing its textures.
-    bool MayMatch(const PromptQuad& q, VAddr address, s64 now_ms) const {
-        const float x = q.cx / q.H, y = q.cy / q.H, size = std::max(q.w, q.h) / q.H;
-        for (const Entry& e : entries) {
-            const bool near_place = now_ms - e.seen_ms < StickyMs && std::hypot(x - e.x, y - e.y) < 0.05f;
-            if (size < 2.5f * e.size && (e.address == address || (near_place && size > 0.4f * e.size))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-private:
-    static constexpr size_t Capacity = 32;
-    static constexpr s64 StickyMs = 300;
-    struct Entry {
-        VAddr address;
-        u64 hash;
-        int button;
-        float x, y, size; // in screen heights, as last seen (size: as the rules last matched it)
-        s64 seen_ms;
-    };
-    std::vector<Entry> entries;
 };
 
 // The button's TLOU atlas cell, redrawn for the set and scaled into a 128x128 RGBA8 image (stored
@@ -1755,8 +1739,8 @@ static bool ReadPromptQuad(const PromptGeometry& geom, Core::MemoryManager* memo
 }
 
 bool FloatingPromptsActive() {
-    // GOW3_PROMPTS_WORLD=0: world prompts and menu tabs keep the game's icons (the guessed button
-    // could be wrong); the symbol atlas in the text is still redrawn.
+    // GOW3_PROMPTS_WORLD=0: world prompts and menu tabs keep the game's icons (a fallback should a
+    // picture ever show the wrong button); the symbol atlas in the text is still redrawn.
     static const bool world = [] {
         const char* env = std::getenv("GOW3_PROMPTS_WORLD");
         return !(env && env[0] == '0');
@@ -1764,42 +1748,131 @@ bool FloatingPromptsActive() {
     return world && SetOf(device.load(std::memory_order_relaxed)) >= 0;
 }
 
+namespace {
+std::filesystem::path ConfigFolder();
+
+// GOW3_PROMPTS_DUMP=1 (study of the prompt pictures): each new colour/alpha texture pair of the HUD
+// sprite shader, with its descriptors, quad and known_prompts' answer, into prompt-dump/ beside the
+// settings file (<hash>.bin; one line per pair in index.txt). Render thread only; at most 2000.
+void DumpPrompt(const AmdGpu::Image& s0, const AmdGpu::Image& s1, Core::MemoryManager* memory,
+                const PromptQuad& q, int rule, u64 picture_hash) {
+    static const bool on = [] {
+        const char* env = std::getenv("GOW3_PROMPTS_DUMP");
+        return env && env[0] == '1';
+    }();
+    static std::unordered_set<u64> dumped;
+    if (!on || dumped.size() >= 2000) {
+        return;
+    }
+    std::vector<u8> data[2];
+    for (int i = 0; i < 2; ++i) {
+        const VAddr address = (i ? s1 : s0).Address();
+        for (const size_t size : {size_t(16384), size_t(8192)}) {
+            data[i].resize(size);
+            if (memory->TryReadBacking(address, data[i].data(), size)) {
+                break;
+            }
+            data[i].clear();
+        }
+        if (data[i].empty()) {
+            return;
+        }
+    }
+    const u64 hash = XXH3_64bits(data[0].data(), data[0].size()) ^ XXH3_64bits(data[1].data(), data[1].size()) * 3;
+    if (!dumped.insert(hash).second) {
+        return;
+    }
+    const auto folder = ConfigFolder() / "prompt-dump";
+    std::error_code error;
+    std::filesystem::create_directories(folder, error);
+    char name[32];
+    std::snprintf(name, sizeof(name), "%016llx.bin", static_cast<unsigned long long>(hash));
+    if (FILE* f = _wfopen((folder / name).c_str(), L"wb")) {
+        const u32 header[4] = {0x44504c54u /* TLPD */, 1, u32(data[0].size()), u32(data[1].size())};
+        const float quad[10] = {q.cx, q.cy, q.w, q.h, q.W, q.H, q.r, q.g, q.b, q.a};
+        std::fwrite(header, sizeof(header), 1, f);
+        std::fwrite(&s0, sizeof(s0), 1, f);
+        std::fwrite(&s1, sizeof(s1), 1, f);
+        std::fwrite(quad, sizeof(quad), 1, f);
+        std::fwrite(&rule, sizeof(rule), 1, f);
+        std::fwrite(data[0].data(), 1, data[0].size(), f);
+        std::fwrite(data[1].data(), 1, data[1].size(), f);
+        std::fclose(f);
+    }
+    if (FILE* f = _wfopen((folder / "index.txt").c_str(), L"a")) {
+        std::fprintf(f,
+                     "%s colour 0x%llx alpha 0x%llx quad %.0f,%.0f %.0fx%.0f in %.0fx%.0f rgba %.2f %.2f %.2f %.2f "
+                     "rule %d picture %016llx\n",
+                     name, static_cast<unsigned long long>(s0.Address()),
+                     static_cast<unsigned long long>(s1.Address()), q.cx, q.cy, q.w, q.h, q.W, q.H, q.r, q.g, q.b,
+                     q.a, rule, static_cast<unsigned long long>(picture_hash));
+        std::fclose(f);
+    }
+}
+} // namespace
+
+// The HUD sprite shader's pictures by the XXH3 of their colour and alpha textures' first mips
+// (8192 bytes each), as GOW3_PROMPTS_DUMP=1 and tools/prompt_dump_view.py showed them. They are
+// fixed pictures of hud.pak (art/general/hud/buttons/*-color.tga and *-trans.tga). button -1:
+// one of that shader's pictures that shows no button. An unknown picture keeps the game's icon
+// (GOW3_PROMPTS_LOG=1 logs its hash).
+struct KnownPrompt {
+    u64 hash;
+    int button;
+    const char* name;
+};
+constexpr KnownPrompt known_prompts[] = {
+    {0xd37b1eed61743d34ULL, GOW3_PROMPT_L1, "backpack tab L1"},
+    {0x05cb6648e035aef2ULL, GOW3_PROMPT_R1, "backpack tab R1"},
+    {0x16d823638b6b66d4ULL, GOW3_PROMPT_TRIANGLE, "world prompt triangle"},
+    {0x6898d5ea5dfeef79ULL, GOW3_PROMPT_SQUARE, "world prompt square"},
+    {0x3fc57b3149c75febULL, -1, "noise marker"},
+    {0x8b945ba80e57f325ULL, -1, "soft round glow"},
+    {0x67e8badcc6bc9d02ULL, -1, "square frame"},
+};
+
 int IdentifyFloatingPrompt(const AmdGpu::Image& s0, const AmdGpu::Image& s1, Core::MemoryManager* memory,
                            const PromptGeometry& geom) {
     if (s0.width != 127 || s0.height != 127 || s0.data_format != 35 || s1.width != 127 || s1.height != 127 ||
         s1.data_format != 38) {
         return -1;
     }
-    PromptQuad q;
-    if (!ReadPromptQuad(geom, memory, q)) {
-        return -1;
-    }
-    // Render thread only: the last world prompt (an NPC talk badge next to it is not a grab) and
-    // the recognised prompts, forgotten when the device or the labels change.
-    static float last_x = -1e9f, last_y = -1e9f;
-    static s64 last_ms = -1000;
-    static PromptMemory recognised;
-    static u32 memory_generation = 0;
-    if (const u32 generation = s_memo_generation.load(std::memory_order_relaxed); generation != memory_generation) {
-        memory_generation = generation;
-        recognised.Clear();
-    }
-    const s64 now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::steady_clock::now().time_since_epoch()).count();
-    const bool close_by = now_ms - last_ms < 200 && std::hypot(q.cx - last_x, q.cy - last_y) < 0.23f * q.H;
-    const int rule = ClassifyQuad(q, close_by);
-    if (rule < 0 && !recognised.MayMatch(q, s0.Address(), now_ms)) {
-        return -1;
-    }
-    u8 texels[2][8192]; // the colour and the alpha texture: the button's symbol is in the alpha
+    // The picture names the button: a known one its button (or none), whatever its size and place.
+    // An unknown one keeps the game's own icon (better than a guessed, maybe wrong, button).
+    u8 texels[2][8192]; // the colour and the alpha texture's first mip (BC1 and BC4, 128x128)
     if (!memory->TryReadBacking(s0.Address(), texels[0], sizeof(texels[0])) ||
         !memory->TryReadBacking(s1.Address(), texels[1], sizeof(texels[1]))) {
-        return rule;
+        return -1;
     }
     const u64 hash = XXH3_64bits(texels, sizeof(texels));
-    const int button = recognised.Resolve(q, s0.Address(), hash, rule, now_ms);
-    if (button == GOW3_PROMPT_TRIANGLE) {
-        last_x = q.cx, last_y = q.cy, last_ms = now_ms;
+    int button = -1;
+    bool known = false;
+    for (const KnownPrompt& k : known_prompts) {
+        if (k.hash == hash) {
+            button = k.button, known = true;
+            break;
+        }
+    }
+    // GOW3_PROMPTS_LOG=1: each unknown picture once, to add it to known_prompts (GOW3_PROMPTS_DUMP=1
+    // saves the picture itself). The quad is read only for these.
+    static const bool log = [] {
+        const char* env = std::getenv("GOW3_PROMPTS_LOG");
+        return env && env[0] == '1';
+    }();
+    static const bool dump = [] {
+        const char* env = std::getenv("GOW3_PROMPTS_DUMP");
+        return env && env[0] == '1';
+    }();
+    static std::unordered_set<u64> logged; // render thread only
+    if ((dump || (log && !known)) && logged.size() < 2000) {
+        PromptQuad q{};
+        ReadPromptQuad(geom, memory, q);
+        DumpPrompt(s0, s1, memory, q, button, hash);
+        if (log && !known && logged.insert(hash).second) {
+            std::printf("Prompts: unknown HUD picture %016llx, %.0fx%.0f at %.0f,%.0f: the game's icon stays\n",
+                        static_cast<unsigned long long>(hash), q.w, q.h, q.cx, q.cy);
+            std::fflush(stdout);
+        }
     }
     return button;
 }
@@ -1813,8 +1886,295 @@ void ClearFloatingPrompts() {
         b.generation = ~0ull;
         b.none = false;
     }
-    ClearFloatingPromptMemo();
 }
+#endif
+
+#ifndef GOW3_PROMPTS_TEST
+namespace {
+
+u32 Be32(const u8* p) {
+    return u32(p[0]) << 24 | u32(p[1]) << 16 | u32(p[2]) << 8 | p[3];
+}
+
+// An 8-bit, non-interlaced PNG (grey, grey+alpha, RGB, RGBA or palette) as RGBA8; false otherwise.
+bool DecodePng(const std::vector<u8>& file, int& w, int& h, std::vector<u8>& rgba, std::string& why) {
+    static const u8 signature[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+    if (file.size() < 8 || std::memcmp(file.data(), signature, 8) != 0) {
+        why = "not a PNG";
+        return false;
+    }
+    int depth = 0, type = -1, interlace = 0;
+    w = h = 0;
+    std::vector<u8> idat, palette, alpha;
+    for (size_t pos = 8; pos + 8 <= file.size();) {
+        const u32 len = Be32(&file[pos]);
+        const char* tag = reinterpret_cast<const char*>(&file[pos + 4]);
+        pos += 8;
+        if (len > file.size() - pos || file.size() - pos - len < 4) {
+            why = "truncated";
+            return false;
+        }
+        const u8* d = &file[pos];
+        if (std::memcmp(tag, "IHDR", 4) == 0 && len >= 13) {
+            w = int(Be32(d)), h = int(Be32(d + 4)), depth = d[8], type = d[9], interlace = d[12];
+        } else if (std::memcmp(tag, "IDAT", 4) == 0) {
+            idat.insert(idat.end(), d, d + len);
+        } else if (std::memcmp(tag, "PLTE", 4) == 0) {
+            palette.assign(d, d + len);
+        } else if (std::memcmp(tag, "tRNS", 4) == 0) {
+            alpha.assign(d, d + len);
+        } else if (std::memcmp(tag, "IEND", 4) == 0) {
+            break;
+        }
+        pos += len + 4; // the chunk and its CRC
+    }
+    const int channels = type == 0 ? 1 : type == 2 ? 3 : type == 3 ? 1 : type == 4 ? 2 : type == 6 ? 4 : 0;
+    if (depth != 8 || interlace != 0 || channels == 0) {
+        why = "only 8-bit, non-interlaced PNGs are read (save it as 32-bit RGBA)";
+        return false;
+    }
+    if (w <= 0 || h <= 0 || w > 4096 || h > 4096) {
+        why = "size out of range";
+        return false;
+    }
+    size_t raw_len = 0;
+    u8* raw = static_cast<u8*>(
+        tinfl_decompress_mem_to_heap(idat.data(), idat.size(), &raw_len, TINFL_FLAG_PARSE_ZLIB_HEADER));
+    const size_t stride = size_t(w) * channels;
+    if (!raw || raw_len < (stride + 1) * h) {
+        mz_free(raw);
+        why = "damaged image data";
+        return false;
+    }
+    std::vector<u8> pixels(stride * h);
+    for (int y = 0; y < h; ++y) {
+        const u8 filter = raw[y * (stride + 1)];
+        const u8* in = &raw[y * (stride + 1) + 1];
+        u8* out = &pixels[y * stride];
+        const u8* prev = y ? &pixels[(y - 1) * stride] : nullptr;
+        for (size_t i = 0; i < stride; ++i) {
+            const int a = i >= size_t(channels) ? out[i - channels] : 0;
+            const int b = prev ? prev[i] : 0;
+            const int c = prev && i >= size_t(channels) ? prev[i - channels] : 0;
+            int v = in[i];
+            switch (filter) {
+            case 0:
+                break;
+            case 1:
+                v += a;
+                break;
+            case 2:
+                v += b;
+                break;
+            case 3:
+                v += (a + b) / 2;
+                break;
+            case 4: {
+                const int p = a + b - c, pa = std::abs(p - a), pb = std::abs(p - b), pc = std::abs(p - c);
+                v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+                break;
+            }
+            default:
+                mz_free(raw);
+                why = "damaged image data";
+                return false;
+            }
+            out[i] = u8(v);
+        }
+    }
+    mz_free(raw);
+    rgba.resize(size_t(w) * h * 4);
+    for (size_t i = 0; i < size_t(w) * h; ++i) {
+        const u8* s = &pixels[i * channels];
+        u8* o = &rgba[i * 4];
+        switch (type) {
+        case 0:
+        case 4:
+            o[0] = o[1] = o[2] = s[0], o[3] = type == 4 ? s[1] : 255;
+            break;
+        case 2:
+            o[0] = s[0], o[1] = s[1], o[2] = s[2], o[3] = 255;
+            break;
+        case 3: {
+            const size_t k = s[0];
+            o[0] = k * 3 + 2 < palette.size() ? palette[k * 3] : 0;
+            o[1] = k * 3 + 2 < palette.size() ? palette[k * 3 + 1] : 0;
+            o[2] = k * 3 + 2 < palette.size() ? palette[k * 3 + 2] : 0;
+            o[3] = k < alpha.size() ? alpha[k] : 255;
+            break;
+        }
+        default:
+            std::memcpy(o, s, 4);
+        }
+    }
+    return true;
+}
+
+std::filesystem::path ConfigFolder() {
+    const char* env = std::getenv("GOW3_CONFIG");
+    return env && env[0] ? std::filesystem::path(env).parent_path() : std::filesystem::path(".");
+}
+
+// The player's sheet (xbox-icons.png), or null when there is none or it cannot be read (logged).
+std::shared_ptr<const Sheet> LoadSheet() {
+    const auto path = ConfigFolder() / "xbox-icons.png";
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error)) {
+        return nullptr;
+    }
+    // Read into the heap: this runs on the game's pad fiber, whose stack is only 64 KiB.
+    std::vector<u8> file(std::min<uintmax_t>(std::filesystem::file_size(path, error), 64u << 20));
+    if (FILE* f = _wfopen(path.c_str(), L"rb")) {
+        file.resize(std::fread(file.data(), 1, file.size(), f));
+        std::fclose(f);
+    } else {
+        file.clear();
+    }
+    int w = 0, h = 0;
+    std::vector<u8> rgba;
+    std::string why;
+    if (!DecodePng(file, w, h, rgba, why) ||
+        (w % SheetColumns != 0 || h % SheetRows != 0 ? (why = "its size is not 4 columns by 3 rows of cells", true)
+                                                     : false)) {
+        std::printf("Prompts: xbox-icons.png not used: %s\n", why.c_str());
+        std::fflush(stdout);
+        return nullptr;
+    }
+    auto sheet = std::make_shared<Sheet>();
+    sheet->cell_w = w / SheetColumns, sheet->cell_h = h / SheetRows;
+    int used = 0;
+    for (int i = 0; i < SheetCount; ++i) {
+        const int ox = (i % SheetColumns) * sheet->cell_w, oy = (i / SheetColumns) * sheet->cell_h;
+        std::vector<float> cell(size_t(sheet->cell_w) * sheet->cell_h * 4);
+        bool any = false;
+        for (int y = 0; y < sheet->cell_h; ++y) {
+            for (int x = 0; x < sheet->cell_w; ++x) {
+                const u8* s = &rgba[(size_t(oy + y) * w + ox + x) * 4];
+                float* o = &cell[(size_t(y) * sheet->cell_w + x) * 4];
+                const float a = s[3] / 255.0f;
+                o[0] = s[0] / 255.0f * a, o[1] = s[1] / 255.0f * a, o[2] = s[2] / 255.0f * a, o[3] = a;
+                any = any || s[3] != 0;
+            }
+        }
+        if (any) {
+            sheet->cells[i] = std::move(cell);
+            ++used;
+        }
+    }
+    std::printf("Prompts: xbox-icons.png: %d of %d controller buttons from the sheet (%dx%d cells)\n", used,
+                SheetCount, sheet->cell_w, sheet->cell_h);
+    std::fflush(stdout);
+    return sheet;
+}
+
+// xbox-icons-default.png: the drawn buttons in the sheet's layout, once per start.
+void ExportDefaultSheet() {
+    Canvas canvas{SheetColumns * SheetCellSize, SheetRows * SheetCellSize,
+                  std::vector<float>(size_t(SheetColumns) * SheetRows * SheetCellSize * SheetCellSize * 4, 0.0f),
+                  std::vector<u8>(size_t(SheetColumns) * SheetRows * SheetCellSize * SheetCellSize, 0)};
+    for (int i = 0; i < SheetCount; ++i) {
+        const int x0 = (i % SheetColumns) * SheetCellSize, y0 = (i / SheetColumns) * SheetCellSize;
+        Painter p{canvas, x0, y0, x0 + SheetCellSize, y0 + SheetCellSize};
+        const float side = SheetCellSize - 2 * Margin;
+        for (const Pass pass : {Pass::Glow, Pass::Body}) {
+            DrawPadButton(p, pass, x0 + SheetCellSize / 2.0f, y0 + SheetCellSize / 2.0f, side, side,
+                          std::string("#") + SheetNames[i]);
+        }
+    }
+    std::vector<u8> rgba(size_t(canvas.w) * canvas.h * 4);
+    for (size_t i = 0; i < size_t(canvas.w) * canvas.h; ++i) {
+        const float* t = &canvas.texels[i * 4];
+        const float a = std::clamp(t[3], 0.0f, 1.0f);
+        for (int k = 0; k < 3; ++k) {
+            rgba[i * 4 + k] = a > 1e-4f ? u8(std::clamp(t[k] / a, 0.0f, 1.0f) * 255.0f + 0.5f) : 0;
+        }
+        rgba[i * 4 + 3] = u8(a * 255.0f + 0.5f);
+    }
+    size_t len = 0;
+    void* png = tdefl_write_image_to_png_file_in_memory_ex(rgba.data(), canvas.w, canvas.h, 4, &len, 6, MZ_FALSE);
+    if (!png) {
+        return;
+    }
+    const auto path = ConfigFolder() / "xbox-icons-default.png";
+    if (FILE* f = _wfopen(path.c_str(), L"wb")) {
+        std::fwrite(png, 1, len, f);
+        std::fclose(f);
+    }
+    mz_free(png);
+}
+
+// playstation-icons-reference.png: the game's own PlayStation symbols, read from its atlas (guest
+// data, 1D-tiled RGBA8), in the sheet's layout (Cross where A goes, Circle where B goes...): a
+// reference for drawing xbox-icons.png. Made from the player's copy of the game at run time and
+// written beside the settings file once per start; no game picture is in the repository.
+void ExportPlayStationSheet(const u8* guest) {
+    // The atlas glyph per sheet cell: Cross Circle Square Triangle, L1 R1 L2 R2, L3 R3 Options Touchpad.
+    static constexpr int ids[SheetCount] = {110, 106, 108, 109, 126, 125, 118, 117, 113, 114, 107, 124};
+    const int atlas_w = int(TlouAtlasWidth), atlas_h = int(TlouAtlasHeight);
+    const auto texel = [&](int x, int y) {
+        x = std::clamp(x, 0, atlas_w - 1), y = std::clamp(y, 0, atlas_h - 1);
+        u32 element = 0;
+        for (int b = 0; b < 3; ++b) {
+            element |= ((x >> b) & 1) << (2 * b);
+            element |= ((y >> b) & 1) << (2 * b + 1);
+        }
+        return guest + ((u32(y / 8) * (atlas_w / 8) + x / 8) * 64 + element) * 4;
+    };
+    const int out_w = SheetColumns * SheetCellSize, out_h = SheetRows * SheetCellSize;
+    std::vector<u8> rgba(size_t(out_w) * out_h * 4, 0);
+    for (int i = 0; i < SheetCount; ++i) {
+        const Cell* cell = nullptr;
+        for (const Cell& c : tlou_cells) {
+            if (c.id == ids[i]) {
+                cell = &c;
+            }
+        }
+        if (!cell) {
+            continue;
+        }
+        const float fit = SheetCellSize - 2 * Margin;
+        const float scale = std::min(fit / cell->w, fit / cell->h);
+        const int ox = (i % SheetColumns) * SheetCellSize, oy = (i / SheetColumns) * SheetCellSize;
+        for (int dy = 0; dy < SheetCellSize; ++dy) {
+            for (int dx = 0; dx < SheetCellSize; ++dx) {
+                const float sx = (dx + 0.5f - SheetCellSize / 2.0f) / scale + cell->x + cell->w / 2.0f - 0.5f;
+                const float sy = (dy + 0.5f - SheetCellSize / 2.0f) / scale + cell->y + cell->h / 2.0f - 0.5f;
+                if (sx < cell->x - 0.5f || sy < cell->y - 0.5f || sx > cell->x + cell->w - 0.5f ||
+                    sy > cell->y + cell->h - 0.5f) {
+                    continue;
+                }
+                const int x0 = int(std::floor(sx)), y0 = int(std::floor(sy));
+                const float fx = sx - x0, fy = sy - y0;
+                const u8* p[4] = {texel(x0, y0), texel(x0 + 1, y0), texel(x0, y0 + 1), texel(x0 + 1, y0 + 1)};
+                const float wgt[4] = {(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy};
+                float sum[4]{}; // premultiplied, so transparent texels do not darken the edges
+                for (int k = 0; k < 4; ++k) {
+                    const float a = p[k][3] / 255.0f * wgt[k];
+                    sum[0] += p[k][0] * a, sum[1] += p[k][1] * a, sum[2] += p[k][2] * a, sum[3] += a;
+                }
+                u8* o = &rgba[(size_t(oy + dy) * out_w + ox + dx) * 4];
+                if (sum[3] > 1e-4f) {
+                    for (int k = 0; k < 3; ++k) {
+                        o[k] = u8(std::clamp(sum[k] / sum[3] + 0.5f, 0.0f, 255.0f));
+                    }
+                    o[3] = u8(std::clamp(sum[3] * 255.0f + 0.5f, 0.0f, 255.0f));
+                }
+            }
+        }
+    }
+    size_t len = 0;
+    void* png = tdefl_write_image_to_png_file_in_memory_ex(rgba.data(), out_w, out_h, 4, &len, 6, MZ_FALSE);
+    if (!png) {
+        return;
+    }
+    if (FILE* f = _wfopen((ConfigFolder() / "playstation-icons-reference.png").c_str(), L"wb")) {
+        std::fwrite(png, 1, len, f);
+        std::fclose(f);
+    }
+    mz_free(png);
+}
+
+} // namespace
 #endif
 
 } // namespace Gow3Prompts
@@ -1824,13 +2184,26 @@ extern "C" void gow3gpu_prompts_set_labels(int set, const char* const* labels, i
     if (set < 0 || set >= Sets) {
         return;
     }
-    ClearFloatingPromptMemo();
     Labels list(GOW3_PROMPT_COUNT);
     for (int i = 0; i < std::min(count, int(GOW3_PROMPT_COUNT)); ++i) {
         list[i] = labels[i] ? labels[i] : "";
     }
+#ifndef GOW3_PROMPTS_TEST
+    // The controller set: the player's sheet, read again each time (an edited sheet shows at the
+    // next controls change or start); the default sheet written once.
+    std::shared_ptr<const Sheet> sheet;
+    if (set == 1) {
+        static std::once_flag exported;
+        std::call_once(exported, ExportDefaultSheet);
+        sheet = LoadSheet();
+    }
+    t_sheet = sheet.get();
+#endif
     auto canvas = Render(list);
     auto tlou_canvas = RenderTlou(list);
+#ifndef GOW3_PROMPTS_TEST
+    t_sheet = nullptr;
+#endif
     {
         auto& state = GetState();
         std::scoped_lock lock{state.mutex};
@@ -1849,7 +2222,6 @@ extern "C" void gow3gpu_prompts_set_device(int next) {
     if (device.exchange(next) == next) {
         return;
     }
-    ClearFloatingPromptMemo();
     static const char* const names[] = {"PlayStation", "keyboard and mouse", "controller"};
     std::printf("Prompts: %s icons\n", names[std::clamp(next, 0, 2)]);
     std::fflush(stdout);
@@ -1867,88 +2239,8 @@ asm(".section .rdata,\"dr\"\n"
     ".incbin \"" GOW3_FONT_PATH "\"\n"
     ".text\n");
 
-// prompts-test classify: the prompt quads measured in the game (1920x1080) and scaled to other viewports.
-static int TestClassify() {
-    using namespace Gow3Prompts;
-    struct Case {
-        const char* name;
-        char anchor; // the side the HUD element keeps its distance to, or the centre
-        float cx, cy, size, r, g, b, a;
-        bool near;
-        int expected;
-    };
-    const Case cases[] = {
-        {"left tab", 'R', 1174, 120, 96, 0.6f, 0.6f, 0.6f, 1, false, GOW3_PROMPT_L1},
-        {"right tab", 'R', 1669, 120, 96, 0.6f, 0.6f, 0.6f, 1, false, GOW3_PROMPT_R1},
-        {"door prompt", 'C', 976, 530, 54, 1, 1, 1, 1, false, GOW3_PROMPT_TRIANGLE},
-        {"hint prompt", 'L', 110, 1010, 48, 1, 1, 1, 1, false, GOW3_PROMPT_L3},
-        {"hint prompt, large", 'L', 192, 877, 97, 1, 1, 1, 1, false, GOW3_PROMPT_L3},
-        {"hint prompt, largest", 'L', 192, 877, 200, 0.4f, 0.4f, 0.4f, 0.5f, false, GOW3_PROMPT_L3},
-        {"door prompt fading in", 'C', 976, 530, 20, 1, 1, 1, 0.2f, false, GOW3_PROMPT_TRIANGLE},
-        {"ammo tick", 'R', 1660, 888, 30, 1, 1, 1, 0.85f, false, -1},
-        {"world prompt right of the canvas", 'R', 2150, 900, 54, 1, 1, 1, 1, false, GOW3_PROMPT_TRIANGLE},
-        {"world prompt left of the canvas", 'L', -150, 900, 54, 1, 1, 1, 1, false, GOW3_PROMPT_TRIANGLE},
-        {"talk prompt", 'C', 908, 425, 41, 1, 1, 1, 1, false, GOW3_PROMPT_TRIANGLE},
-        {"talk badge", 'C', 873, 380, 110, 1, 1, 1, 1, true, -1},
-        {"struggle", 'C', 960, 600, 120, 1, 1, 1, 1, false, GOW3_PROMPT_SQUARE},
-        {"struggle by a prompt", 'C', 960, 600, 120, 1, 1, 1, 1, true, -1},
-        {"wrench widget", 'R', 1732, 900, 60, 1, 1, 1, 1, false, -1},
-        {"weapon icon", 'R', 998, 198, 192, 1, 1, 1, 1, false, -1},
-        {"category icon", 'R', 1326, 120, 96, 0.89f, 0.80f, 0.43f, 1, false, -1},
-        {"selection frame", 'R', 1326, 117, 120, 1, 1, 1, 0.5f, false, -1},
-    };
-    struct Viewport {
-        float w, h;
-    };
-    int failed = 0;
-    for (const Viewport vp : {Viewport{1920, 1080}, Viewport{1280, 720}, Viewport{2560, 1440}}) {
-        const float k = vp.h / 1080.0f;
-        for (const Case& c : cases) {
-            const float cx = c.anchor == 'L'   ? c.cx * k
-                             : c.anchor == 'R' ? vp.w - (1920 - c.cx) * k
-                                               : vp.w / 2 + (c.cx - 960) * k;
-            const PromptQuad q{cx, c.cy * k, c.size * k, c.size * k, vp.w, vp.h, c.r, c.g, c.b, c.a};
-            const int got = ClassifyQuad(q, c.near);
-            if (got != c.expected) {
-                std::printf("%.0fx%.0f %s: %d, expected %d\n", vp.w, vp.h, c.name, got, c.expected);
-                ++failed;
-            }
-        }
-    }
-    // The pulsing hint keeps its button outside the rules' sizes (same texture, then a changed one);
-    // a weapon icon with a prompt's texture does not take its button.
-    PromptMemory recognised;
-    const auto resolve = [&](float cx, float cy, float size, u64 hash, s64 ms) {
-        const PromptQuad q{cx, cy, size, size, 1920, 1080, 1, 1, 1, 1};
-        return recognised.Resolve(q, 0x1000, hash, ClassifyQuad(q, false), ms);
-    };
-    const struct {
-        const char* name;
-        int got, expected;
-    } steps[] = {
-        {"hint", resolve(192, 877, 100, 1, 0), GOW3_PROMPT_L3},
-        {"hint, grown", resolve(192, 877, 225, 1, 16), GOW3_PROMPT_L3},
-        {"hint, grown, other texture", resolve(192, 877, 225, 2, 32), GOW3_PROMPT_L3},
-        {"hint's place, later", resolve(192, 877, 225, 2, 1000), -1},
-        {"door prompt", resolve(976, 530, 54, 3, 1000), GOW3_PROMPT_TRIANGLE},
-        {"weapon icon, door prompt's texture", resolve(998, 198, 192, 3, 1016), -1},
-        {"door prompt fading in elsewhere", resolve(400, 300, 10, 3, 9000), GOW3_PROMPT_TRIANGLE},
-    };
-    for (const auto& step : steps) {
-        if (step.got != step.expected) {
-            std::printf("memory, %s: %d, expected %d\n", step.name, step.got, step.expected);
-            ++failed;
-        }
-    }
-    std::printf("classify: %d failed\n", failed);
-    return failed ? 1 : 0;
-}
-
 int main(int argc, char** argv) {
     using namespace Gow3Prompts;
-    if (argc == 2 && std::strcmp(argv[1], "classify") == 0) {
-        return TestClassify();
-    }
     if (argc < 7) {
         return 2;
     }

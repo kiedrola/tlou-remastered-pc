@@ -30,6 +30,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
+#include <tlhelp32.h>
 #endif
 
 namespace Gow3Profiler {
@@ -266,11 +267,12 @@ bool UnwindStep(const RUNTIME_FUNCTION* function, DWORD64 image_base, CONTEXT& c
     return true;
 }
 
-void Walk(const std::vector<Module>& modules, CONTEXT context, Stack& stack) {
+/// Up to `max` return addresses of the thread whose registers are `context`, innermost first.
+int WalkInto(const std::vector<Module>& modules, CONTEXT context, unsigned long long* pc, int max) {
     const unsigned long long low = context.Rsp, high = context.Rsp + (8ull << 20);
-    stack.depth = 0;
-    while (stack.depth < MaxDepth && context.Rip) {
-        stack.pc[stack.depth++] = context.Rip;
+    int depth = 0;
+    while (depth < max && context.Rip) {
+        pc[depth++] = context.Rip;
         DWORD64 image_base = 0;
         if (const RUNTIME_FUNCTION* function = LookupFunction(modules, context.Rip, image_base)) {
             if (!UnwindStep(function, image_base, context)) {
@@ -296,10 +298,224 @@ void Walk(const std::vector<Module>& modules, CONTEXT context, Stack& stack) {
             break;
         }
     }
+    return depth;
+}
+
+void Walk(const std::vector<Module>& modules, const CONTEXT& context, Stack& stack) {
+    stack.depth = WalkInto(modules, context, stack.pc, MaxDepth);
+}
+
+/// The nearest exported function at or before `address` in the module at `base` (system DLLs:
+/// ntdll's and kernelbase's waits get a name in the log without symbol files); empty if none.
+std::string NearestExport(unsigned long long base, unsigned long long end, unsigned long long address) {
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        return {};
+    }
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    const auto& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+    if (!dir.Size || base + dir.VirtualAddress + sizeof(IMAGE_EXPORT_DIRECTORY) > end) {
+        return {};
+    }
+    const auto* exports = reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(base + dir.VirtualAddress);
+    const auto* functions = reinterpret_cast<const DWORD*>(base + exports->AddressOfFunctions);
+    const auto* names = reinterpret_cast<const DWORD*>(base + exports->AddressOfNames);
+    const auto* ordinals = reinterpret_cast<const WORD*>(base + exports->AddressOfNameOrdinals);
+    const unsigned long long rva = address - base;
+    DWORD best = 0;
+    const char* best_name = nullptr;
+    for (DWORD i = 0; i < exports->NumberOfNames; ++i) {
+        if (ordinals[i] >= exports->NumberOfFunctions) {
+            continue;
+        }
+        const DWORD function = functions[ordinals[i]];
+        // Forwarded exports point into the export directory: names, not code.
+        if (function >= dir.VirtualAddress && function < dir.VirtualAddress + dir.Size) {
+            continue;
+        }
+        if (function <= rva && function >= best) {
+            best = function;
+            best_name = reinterpret_cast<const char*>(base + names[i]);
+        }
+    }
+    if (!best_name || rva - best > 0x10000) {
+        return {};
+    }
+    char text[256];
+    std::snprintf(text, sizeof(text), "%s+%#llx", best_name, rva - best);
+    return text;
+}
+
+/// module+offset, with the nearest export in parentheses when there is one.
+std::string Describe(const std::vector<Module>& modules, unsigned long long address) {
+    char text[MAX_PATH + 300];
+    HMODULE module = nullptr;
+    char path[MAX_PATH];
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCSTR>(address), &module) ||
+        !module || !GetModuleFileNameA(module, path, sizeof(path))) {
+        std::snprintf(text, sizeof(text), "?+%#llx", address);
+        return text;
+    }
+    const auto base = reinterpret_cast<unsigned long long>(module);
+    const char* file = std::strrchr(path, '\\');
+    file = file ? file + 1 : path;
+    unsigned long long end = base;
+    for (const Module& m : modules) {
+        if (m.base == base) {
+            end = m.end;
+        }
+    }
+    const std::string symbol = end > base ? NearestExport(base, end, address) : std::string{};
+    if (symbol.empty()) {
+        std::snprintf(text, sizeof(text), "%s+%#llx", file, address - base);
+    } else {
+        std::snprintf(text, sizeof(text), "%s+%#llx (%s)", file, address - base, symbol.c_str());
+    }
+    return text;
+}
+
+/// The thread's name (SetThreadDescription, Windows 10 1607 and later), or empty.
+std::string ThreadName(HANDLE thread) {
+    using GetDescriptionFn = HRESULT(WINAPI*)(HANDLE, PWSTR*);
+    static const auto get_description = reinterpret_cast<GetDescriptionFn>(reinterpret_cast<void*>(
+        GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetThreadDescription")));
+    if (!get_description) {
+        return {};
+    }
+    PWSTR wide = nullptr;
+    std::string name;
+    if (SUCCEEDED(get_description(thread, &wide)) && wide) {
+        char narrow[256];
+        if (WideCharToMultiByte(CP_UTF8, 0, wide, -1, narrow, sizeof(narrow), nullptr, nullptr)) {
+            name = narrow;
+        }
+        LocalFree(wide);
+    }
+    return name;
+}
+
+constexpr int HangDepth = 48;
+
+/// Every thread's stack into the log. One thread is suspended at a time and resumed before
+/// anything is formatted (a suspended thread may hold the heap lock).
+void ReportThreads(double seconds, int report) {
+    const std::vector<Module> modules = LoadModules();
+    struct Sample {
+        DWORD id;
+        std::string name;
+        int depth;
+        unsigned long long pc[HangDepth];
+    };
+    std::vector<DWORD> ids;
+    if (HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0); snap != INVALID_HANDLE_VALUE) {
+        THREADENTRY32 entry{};
+        entry.dwSize = sizeof(entry);
+        for (BOOL ok = Thread32First(snap, &entry); ok; ok = Thread32Next(snap, &entry)) {
+            if (entry.th32OwnerProcessID == GetCurrentProcessId() &&
+                entry.th32ThreadID != GetCurrentThreadId()) {
+                ids.push_back(entry.th32ThreadID);
+            }
+        }
+        CloseHandle(snap);
+    }
+    std::vector<Sample> samples(ids.size());
+    size_t count = 0;
+    for (const DWORD id : ids) {
+        HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
+                                       THREAD_QUERY_LIMITED_INFORMATION,
+                                   FALSE, id);
+        if (!thread) {
+            continue;
+        }
+        Sample& sample = samples[count];
+        sample.id = id;
+        sample.depth = 0;
+        if (SuspendThread(thread) != DWORD(-1)) {
+            CONTEXT context{};
+            context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+            if (GetThreadContext(thread, &context)) {
+                sample.depth = WalkInto(modules, context, sample.pc, HangDepth);
+            }
+            ResumeThread(thread);
+        }
+        sample.name = ThreadName(thread);
+        CloseHandle(thread);
+        ++count;
+    }
+    std::printf("Hang watch: no game frame for %.0f s (report %d); %zu threads, stacks innermost "
+                "first:\n",
+                seconds, report, count);
+    for (size_t i = 0; i < count; ++i) {
+        const Sample& sample = samples[i];
+        std::printf("Hang thread %lu '%s':", sample.id,
+                    sample.name.empty() ? "?" : sample.name.c_str());
+        for (int d = 0; d < sample.depth; ++d) {
+            std::printf(" %s%s", d ? "<- " : "", Describe(modules, sample.pc[d]).c_str());
+        }
+        std::printf("\n");
+    }
+    std::printf("Hang watch: end of report %d\n", report);
+    std::fflush(stdout);
+}
+
+std::atomic<long long> last_beat_ms{0};
+
+long long NowMs() {
+    return static_cast<long long>(GetTickCount64());
 }
 
 } // namespace
 #endif
+
+void HangBeat() {
+#ifdef _WIN32
+    last_beat_ms.store(NowMs(), std::memory_order_relaxed);
+    static std::once_flag started;
+    std::call_once(started, [] {
+        // gow3 17 Nov 2026 (#158, #190): the game froze on "Loading Shader Cache" and nothing in
+        // the log said where. GOW3_HANG_WATCH=<seconds> (default 10, 0: off).
+        const char* env = std::getenv("GOW3_HANG_WATCH");
+        const int seconds = env && *env ? std::atoi(env) : 10;
+        if (seconds <= 0) {
+            return;
+        }
+        std::printf("Hang watch: every thread's stack goes to this log after %d s without a game "
+                    "frame (GOW3_HANG_WATCH=<seconds>, 0: off)\n",
+                    seconds);
+        std::fflush(stdout);
+        std::thread([limit_ms = seconds * 1000ll] {
+            using SetDescriptionFn = HRESULT(WINAPI*)(HANDLE, PCWSTR);
+            if (const auto set_description = reinterpret_cast<SetDescriptionFn>(
+                    reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"),
+                                                           "SetThreadDescription")))) {
+                set_description(GetCurrentThread(), L"gow3 hang watch");
+            }
+            // A hang is reported after the limit and once more at four times it (a loop that
+            // never ends shows other stacks the second time; a deadlock the same ones).
+            int reports = 0;
+            long long hang_beat = -1;
+            for (;;) {
+                Sleep(1000);
+                const long long beat = last_beat_ms.load(std::memory_order_relaxed);
+                const long long quiet = NowMs() - beat;
+                if (beat != hang_beat && reports) {
+                    std::printf("Hang watch: game frames again after the reported hang\n");
+                    std::fflush(stdout);
+                    reports = 0;
+                }
+                if (reports == 0 && quiet >= limit_ms) {
+                    hang_beat = beat;
+                    ReportThreads(quiet / 1000.0, ++reports);
+                } else if (reports == 1 && beat == hang_beat && quiet >= limit_ms * 4) {
+                    ReportThreads(quiet / 1000.0, ++reports);
+                }
+            }
+        }).detach();
+    });
+#endif
+}
 
 void Start(unsigned long thread_id, const char* name) {
 #ifdef _WIN32

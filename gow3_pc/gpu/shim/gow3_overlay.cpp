@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "gow3_overlay.h"
+#include "../gow3gpu.h"
 
 #include <algorithm>
 #include <array>
@@ -70,6 +71,8 @@ namespace {
 std::mutex imgui_mutex; // the ImGui context: window thread (input) and present thread
 bool initialized = false;
 std::atomic<bool> menu_open{false};
+/// RequestOpen (any thread): opened by the next Render.
+std::atomic<bool> open_requested{false};
 // gow3 18 Oct (GitHub #15, #19): the controller buttons held now (bit = SDL gamepad button; the
 // triggers, pressed past half, as the two top bits). The menu opens when every button of its
 // shortcut is held: LT + right stick click, View + Menu, or the player's own one or two buttons.
@@ -164,6 +167,14 @@ std::atomic<int> choice_result{-1}; // -1 open, -2 cancelled, else the chosen in
 std::vector<Gow3Png::Image> choice_pictures;
 std::vector<ImTextureData*> choice_textures, choice_retired;
 
+// The game's own save list page (src/runtime_menu_saves.c): the pictures of its rows, made
+// textures before the next frame, and the one shown (-1: none) where the game's Chapters page
+// shows its picture. Guarded by imgui_mutex but preview_index (any thread).
+std::vector<Gow3Png::Image> preview_pictures;
+std::vector<ImTextureData*> preview_textures;
+bool preview_pending = false;
+std::atomic<int> preview_index{-1};
+
 // Trophy popups (ShowTrophy) and the Trophies tab's pictures, guarded by imgui_mutex. A picture
 // becomes a texture before the next frame (UpdateTrophyTextures); retired ones are freed there.
 struct TrophyPopupItem {
@@ -193,6 +204,7 @@ void SetOpen(bool value) {
     if (menu_open.exchange(value) == value) {
         return;
     }
+    std::printf("Overlay: settings menu %s\n", value ? "opened" : "closed");
     ImGui::GetIO().MouseDrawCursor = value;
     CancelCapture();
     if (value) {
@@ -823,6 +835,7 @@ void ResetControls() {
     s.mouse_invert = false;
     s.mouse_invert_x = false;
     s.mouse_aim_sens = 1.0f;
+    s.mouse_scope_sens = 1.0f;
     s.mouse_vertical = 1.0f;
     s.prompts = -1;
     s.stick_speed = 1.0f;
@@ -1105,10 +1118,13 @@ void ControlsTab() {
         Help("The mouse turns the camera and presses its buttons' actions. Off: the mouse is left alone.");
         ImGui::PopID();
         ImGui::BeginDisabled(!s.mouse);
-        changed |= PercentRow("Mouse sensitivity", s.mouse_sens, 25, 500, "How far the camera turns per mouse movement.");
-        changed |= PercentRow("Mouse aim sensitivity", s.mouse_aim_sens, 25, 1000,
+        changed |= PercentRow("Mouse sensitivity", s.mouse_sens, 10, 500, "How far the camera turns per mouse movement.");
+        changed |= PercentRow("Mouse aim sensitivity", s.mouse_aim_sens, 10, 500,
                               "While aiming (the aim button held): the mouse sensitivity times this. Below 100% "
                               "makes aiming finer.");
+        changed |= PercentRow("Mouse scope sensitivity", s.mouse_scope_sens, 10, 200,
+                              "With a scope (sniper rifle, scoped weapons): the aim sensitivity times this, on "
+                              "top of the zoom's own slowdown. Below 100% makes scoped aiming finer.");
         changed |= PercentRow("Mouse up/down speed", s.mouse_vertical, 25, 300,
                               "Looking up and down compared with left and right.");
         Row("Invert mouse up/down");
@@ -1753,6 +1769,49 @@ void UpdateTrophyTextures() {
 }
 
 // imgui_mutex held, before NewFrame: new pictures become textures, destroyed ones are freed.
+void UpdatePreviewTextures() {
+    if (!preview_pending) {
+        return;
+    }
+    preview_pending = false;
+    for (ImTextureData* tex : preview_textures) {
+        if (tex) {
+            tex->WantDestroyNextFrame = true;
+            choice_retired.push_back(tex); // freed with the save list's
+        }
+    }
+    preview_textures.clear();
+    for (const Gow3Png::Image& picture : preview_pictures) {
+        preview_textures.push_back(NewTexture(picture));
+    }
+    preview_pictures.clear();
+}
+
+// The shown row's picture, under the texts of the panel beside the list (1080p: 773,320 to
+// 1442,697, the Chapters picture's size), its aspect kept.
+void DrawPreview(vk::Extent2D extent) {
+    const int shown = preview_index;
+    const bool picture_box = shown >= 0 && (shown & GOW3_PREVIEW_PICTURE_BOX);
+    const int index = shown < 0 ? -1 : shown & (GOW3_PREVIEW_PICTURE_BOX - 1);
+    if (index < 0 || index >= int(preview_textures.size()) || !preview_textures[index]) {
+        return;
+    }
+    ImTextureData* tex = preview_textures[index];
+    const float sx = float(extent.width) / 1920.0f, sy = float(extent.height) / 1080.0f;
+    // The Chapters picture's box (1080p: 828,175, 669x377), or under the texts (773,320).
+    const float bx0 = (picture_box ? 828.0f : 773.0f) * sx, by0 = (picture_box ? 175.0f : 320.0f) * sy;
+    const float bw = 669.0f * sx, bh = 377.0f * sy;
+    const float aspect = tex->Height ? float(tex->Width) / float(tex->Height) : 1.0f;
+    // In the Chapters picture's box the picture fills it, as the game draws its own.
+    float w = bw, h = picture_box ? bh : bw / aspect;
+    if (h > bh) {
+        h = bh;
+        w = bh * aspect;
+    }
+    const ImVec2 min(bx0 + (bw - w) * 0.5f, by0 + (bh - h) * 0.5f), max(min.x + w, min.y + h);
+    ImGui::GetBackgroundDrawList()->AddImage(tex->GetTexRef(), min, max);
+}
+
 void UpdateChoiceTextures() {
     if (!choice_pictures.empty()) {
         choice_textures.assign(choice_pictures.size(), nullptr);
@@ -1954,12 +2013,29 @@ void SetLoading(bool active, u32 done, u32 total) {
 
 bool Visible() {
     const auto& s = Gow3Settings::Get();
-    return initialized && (loading || background_total || menu_open || text_entry_active || choice_active ||
+    // open_requested: the next Render opens the menu, also when nothing else is drawn.
+    return initialized && (loading || background_total || menu_open || open_requested || preview_index >= 0 ||
+                           text_entry_active || choice_active ||
                            choice_retiring || s.show_fps || trophy_showing);
 }
 
 bool CapturesInput() {
     return menu_open || text_entry_active || choice_active;
+}
+
+void RequestOpen() {
+    open_requested = true;
+}
+
+void SetPreviewPictures(std::vector<Gow3Png::Image> pictures) {
+    std::scoped_lock lock{imgui_mutex};
+    preview_pictures = std::move(pictures);
+    preview_pending = true;
+    preview_index = -1;
+}
+
+void ShowPreview(int index) {
+    preview_index = index;
 }
 
 void BeginChoice(const std::string& title, const std::vector<std::string>& items,
@@ -2036,6 +2112,11 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
         SetOpen(true);
         menu_at_start = -1;
     }
+    if (open_requested.exchange(false) && initialized) {
+        std::puts("Overlay: settings menu requested by the game's PC SETTINGS page");
+        std::scoped_lock lock{imgui_mutex};
+        SetOpen(true);
+    }
     // GOW3_TEST_TROPHY=<seconds>,<id> (tests and screenshots): that trophy's popup once the game
     // has shown frames that long after loading (marked earned for this session only, not saved).
     static int test_trophy_frames = [] {
@@ -2063,12 +2144,14 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     }
 
     UpdateChoiceTextures();
+    UpdatePreviewTextures();
     UpdateTrophyTextures();
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
     if (loading) {
         LoadingScreen();
     }
+    DrawPreview(extent);
     if (menu_open) {
         Menu();
     }

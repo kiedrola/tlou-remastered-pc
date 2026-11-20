@@ -164,10 +164,10 @@ void runtime_thread_attach_main(void) {
 /* Records are never removed (games create threads again during every load), so a found
  * thread moves to the front: the threads the game asks about (priorities, affinity) are not
  * behind every finished one (SpartanPort 201a00f, from Awakenchan 0.9.34 beta 9.9).
- * GOW3_THREAD_FRONT=0: the list keeps its order, as before. */
+ * GOW3_THREAD_FRONT=0 (or GOW3_REGISTRY_FRONT=0, launcher debug menu): the list keeps its order, as before. */
 static GuestThread *find_thread(void *handle) {
     static int front=-1;
-    if (front<0) { const char *e=getenv("GOW3_THREAD_FRONT"); front=!(e && e[0]=='0'); }
+    if (front<0) { const char *e=getenv("GOW3_THREAD_FRONT"), *all=getenv("GOW3_REGISTRY_FRONT"); front=!(e && e[0]=='0') && !(all && all[0]=='0'); }
     GuestThread *found=NULL;
     pthread_mutex_lock(&lock);
     GuestThread **link=&threads;

@@ -43,6 +43,9 @@ void runtime_mouselook_set_stick_boost(float boost);
 int runtime_mouselook_camera_recent(void);
 /* The aim camera's hook ran in the last 200 ms: the mouse turns the aim directly too. */
 int runtime_mouselook_aim_recent(void);
+/* The third-person camera is shown with its yaw locked by the game (pushing an object) in the
+ * last 100 ms: its shown heading (degrees, atan2(x, z)). */
+int runtime_mouselook_push_heading(float *heading);
 /* runtime_pad.c: the aim button (L2) was held at the last pad read. */
 int runtime_pad_aim_held(void);
 /* runtime_raycast_diag.c (GOW3_RAYCAST_DIAG=1): a site at the mesh ray caster's HandleResults. */

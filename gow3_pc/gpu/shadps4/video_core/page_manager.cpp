@@ -382,7 +382,16 @@ struct PageManager::Impl {
     // use Find, where a missing chunk means no watchers.
     class PageStates {
     public:
-        PageStates() = default;
+        // GOW3_LAZY_PAGE_WATCHERS=0 (launcher debug menu): every chunk allocated up front, the
+        // 512 MiB of before (A/B of the memory saving).
+        PageStates() {
+            const char* env = std::getenv("GOW3_LAZY_PAGE_WATCHERS");
+            if (env && env[0] == '0') {
+                for (auto& slot : chunks) {
+                    slot.store(new PageState[PAGES_PER_LOCK]{}, std::memory_order_relaxed);
+                }
+            }
+        }
         PageStates(const PageStates&) = delete;
         PageStates& operator=(const PageStates&) = delete;
         ~PageStates() {

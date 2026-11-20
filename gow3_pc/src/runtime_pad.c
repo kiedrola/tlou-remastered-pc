@@ -20,6 +20,7 @@
 #include "runtime.h"
 #include "gpu/gow3gpu.h"
 #include "runtime_gamesettings.h"
+#include "runtime_menu_exit.h"
 #include "runtime_mouselook.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -142,12 +143,62 @@ static void play_shake(PadData *d) {
     d->angular_velocity[1]=6.0f*wave;
     d->angular_velocity[2]=4.0f*wave;
 }
+/* 17 Nov 2026: a controller shaken for real also presses the shake action: a gamepad's
+ * accelerometer (SDL sensors, in g; GOW3_SENSOR_SHAKE=0 ignores it) or the axis a DirectInput
+ * controller has for it (GOW3_DINPUT_AXES, 7th entry). How far the value moved between reads (the
+ * accelerometer's whole vector: a sideways shake hardly changes its length) decays over 150 ms;
+ * past the threshold the shake is held 400 ms more. A slow tilt moves it a little per read, and a
+ * sensor that reports a fixed value (some PS3 clones) never moves: neither shakes. (The first
+ * version used the vector's length: a DualSense shaken sideways stayed under the threshold.) */
+/* A shake is also several strong moves in a row (swings: reads that moved more than a fifth of the
+ * threshold, decaying over 300 ms): one jump, such as a sensor's first report or a clone's
+ * value changing once, is not. */
+typedef struct { float last[3], activity, swings, peak; uint64_t time, until, report; int primed, shaking, logged; } ShakeDetector;
+static int shake_detect(ShakeDetector *s, const float *value, int n, float threshold, uint64_t now) {
+    if (s->primed && now>s->time) {
+        const float dt=(float)(now-s->time)/1e6f;
+        float moved=0;
+        for (int i=0;i<n;++i) moved+=(value[i]-s->last[i])*(value[i]-s->last[i]);
+        moved=sqrtf(moved);
+        s->activity=s->activity*expf(-dt/0.15f)+moved;
+        s->swings=s->swings*expf(-dt/0.3f)+(moved>0.2f*threshold ? 1.0f : 0.0f);
+    }
+    for (int i=0;i<n;++i) s->last[i]=value[i];
+    s->primed=1; s->time=now;
+    if (s->activity>s->peak) s->peak=s->activity;
+    if (s->activity>threshold && s->swings>=2.5f) s->until=now+400000;
+    return now<s->until;
+}
+/* Log lines for testers: each shake that starts (the first 20) and, every 10 s with movement, the
+ * strongest movement against the threshold. */
+static void shake_log(ShakeDetector *s, int shaking, const char *source, float threshold, uint64_t now) {
+    if (shaking && !s->shaking && s->logged<20) {
+        ++s->logged;
+        printf("Runtime: controller shaken (%s, movement %.2f, threshold %.2f)\n",source,s->peak,threshold);
+    }
+    s->shaking=shaking;
+    if (!s->report) s->report=now;
+    if (now-s->report>=10000000) {
+        if (s->peak>0.3f*threshold && s->logged<20)
+            printf("Runtime: %s: strongest movement %.2f in 10 s (shakes past %.2f)\n",source,s->peak,threshold);
+        s->peak=0; s->report=now;
+    }
+}
+static ShakeDetector sensor_shake, axis_shake;
+static int sensor_shake_enabled(void) {
+    static int enabled=-1;
+    if (enabled<0) { const char *e=getenv("GOW3_SENSOR_SHAKE"); enabled=!(e && e[0]=='0'); }
+    return enabled;
+}
 
 static void apply_light_bar(SDL_Gamepad *g);
-/* Opens the first gamepad SDL knows about; called under lock. */
+enum { DINPUT_OFF, DINPUT_AUTO, DINPUT_FORCE };
+static int dinput_mode(void);
+/* Opens the first gamepad SDL knows about; called under lock. None with GOW3_DINPUT=force: every
+ * controller is read as a DirectInput one (current_joystick). */
 static SDL_Gamepad *current_gamepad(void) {
     if (!sdl_ready) sdl_ready = SDL_WasInit(SDL_INIT_GAMEPAD) ? 1 : SDL_InitSubSystem(SDL_INIT_GAMEPAD) ? 1 : -1;
-    if (sdl_ready<0) return NULL;
+    if (sdl_ready<0 || dinput_mode()==DINPUT_FORCE) return NULL;
     if (gamepad && !SDL_GamepadConnected(gamepad)) { SDL_CloseGamepad(gamepad); gamepad=NULL; }
     if (!gamepad) {
         int count=0;
@@ -157,11 +208,92 @@ static SDL_Gamepad *current_gamepad(void) {
             if (gamepad) {
                 ++connected_count; printf("Runtime: gamepad connected: %s\n",SDL_GetGamepadName(gamepad));
                 apply_light_bar(gamepad);
+                if (!sensor_shake_enabled()) {
+                    puts("Runtime: the gamepad's accelerometer is not read (GOW3_SENSOR_SHAKE=0)");
+                } else if (SDL_GamepadHasSensor(gamepad,SDL_SENSOR_ACCEL) &&
+                           SDL_SetGamepadSensorEnabled(gamepad,SDL_SENSOR_ACCEL,true)) {
+                    printf("Runtime: the gamepad's accelerometer also shakes it (%.0f reports/s; GOW3_SENSOR_SHAKE=0: off)\n",
+                           SDL_GetGamepadSensorDataRate(gamepad,SDL_SENSOR_ACCEL));
+                    memset(&sensor_shake,0,sizeof(sensor_shake));
+                } else {
+                    /* Steam Input, DS4Windows or DSX show a DualShock 4 or DualSense as an Xbox
+                     * controller: SDL then sees no sensor. */
+                    printf("Runtime: no accelerometer on this gamepad through SDL (type %d)%s\n",
+                           (int)SDL_GetGamepadType(gamepad),
+                           SDL_GamepadHasSensor(gamepad,SDL_SENSOR_ACCEL) ? ": it could not be turned on" :
+                           "; Steam Input, DS4Windows or DSX hide it");
+                }
             }
         }
         SDL_free(ids);
     }
     return gamepad;
+}
+/* 17 Nov 2026: DirectInput controllers that SDL has no gamepad mapping for (generic USB pads,
+ * console-pad adapters, older PC pads) are only joysticks to SDL: SDL_GetGamepads leaves them
+ * out and the game saw no movement from them. Without a gamepad, the first such joystick
+ * (SDL3's DirectInput driver on Windows) moves the sticks and the d-pad: its axes in
+ * GOW3_DINPUT_AXES order "<left x>,<left y>,<right x>,<right y>[,<l2>,<r2>]" (default 0,1,2,3: X, Y,
+ * Z, Rz on most pads; -1 leaves a stick axis centred, the triggers are buttons unless given) and its
+ * first hat as the d-pad. A trigger axis resting at its minimum (SDL's initial state) goes from
+ * released there to pressed at its maximum; one resting in the middle is pressed past it. Its buttons follow
+ * GOW3_DINPUT_BUTTONS, the PS4 button of each joystick button in order (see dinput_button_map).
+ * GOW3_DINPUT=0 turns this off; GOW3_DINPUT=force reads every controller this way, also one SDL
+ * has a gamepad mapping for (its buttons and axes then come in SDL's raw order; the launcher's
+ * Controller tab remaps them: dinput, dinput_buttons, dinput_axes in tlou.ini). Called under lock. */
+static SDL_Joystick *joystick;
+/* lx, ly, rx, ry, l2, r2, shake (shake_detect on its movement); -1: none. */
+static int dinput_axes[7]={0,1,2,3,-1,-1,-1};
+static int dinput_mode(void) {
+    static int mode=-1;
+    if (mode<0) {
+        const char *e=getenv("GOW3_DINPUT");
+        mode=e && e[0]=='0' ? DINPUT_OFF : e && !SDL_strcasecmp(e,"force") ? DINPUT_FORCE : DINPUT_AUTO;
+        const char *axes=getenv("GOW3_DINPUT_AXES");
+        if (mode!=DINPUT_OFF && axes && *axes) {
+            int v[7]={0,0,0,0,-1,-1,-1};
+            const int n=sscanf(axes,"%d,%d,%d,%d,%d,%d,%d",&v[0],&v[1],&v[2],&v[3],&v[4],&v[5],&v[6]);
+            if (n==4 || n==6 || n==7) memcpy(dinput_axes,v,sizeof(v));
+            else printf("Runtime: GOW3_DINPUT_AXES '%s' is not <lx>,<ly>,<rx>,<ry>[,<l2>,<r2>[,<shake>]]; 0,1,2,3\n",axes);
+        }
+        if (mode==DINPUT_FORCE) puts("Runtime: every controller is read as a DirectInput controller (GOW3_DINPUT=force)");
+    }
+    return mode;
+}
+static SDL_Joystick *current_joystick(void) {
+    if (joystick && !SDL_JoystickConnected(joystick)) { SDL_CloseJoystick(joystick); joystick=NULL; }
+    if (gamepad || sdl_ready<0 || dinput_mode()==DINPUT_OFF) {
+        if (joystick) { SDL_CloseJoystick(joystick); joystick=NULL; }
+        return NULL;
+    }
+    if (!joystick) {
+        int count=0;
+        SDL_JoystickID *ids=SDL_GetJoysticks(&count);
+        for (int i=0;ids && i<count && !joystick;++i) {
+            if (dinput_mode()!=DINPUT_FORCE && SDL_IsGamepad(ids[i])) continue;
+            joystick=SDL_OpenJoystick(ids[i]);
+            if (joystick) {
+                ++connected_count;
+                printf("Runtime: DirectInput controller connected: %s (%d axes, %d hats, %d buttons; sticks from axes %d,%d,%d,%d, triggers %d,%d, shake %d)\n",
+                       SDL_GetJoystickName(joystick),SDL_GetNumJoystickAxes(joystick),SDL_GetNumJoystickHats(joystick),
+                       SDL_GetNumJoystickButtons(joystick),dinput_axes[0],dinput_axes[1],dinput_axes[2],dinput_axes[3],
+                       dinput_axes[4],dinput_axes[5],dinput_axes[6]);
+                memset(&axis_shake,0,sizeof(axis_shake));
+            }
+        }
+        SDL_free(ids);
+    }
+    return joystick;
+}
+static uint8_t joystick_axis(SDL_Joystick *j, int index) {
+    return index>=0 && index<SDL_GetNumJoystickAxes(j) ? axis(SDL_GetJoystickAxis(j,index)) : 128;
+}
+static uint8_t joystick_trigger(SDL_Joystick *j, int index) {
+    if (index<0 || index>=SDL_GetNumJoystickAxes(j)) return 0;
+    const Sint16 v=SDL_GetJoystickAxis(j,index);
+    Sint16 rest=0;
+    if (SDL_GetJoystickAxisInitialState(j,index,&rest) && rest<-16000) return axis(v);
+    return trigger(v);
 }
 /* Button sources: a host button or key and the PS4 button it presses. The defaults below can be
  * changed per PS4 button with GOW3_PAD_MAP (gamepad) and GOW3_KEY_MAP (keyboard), e.g.
@@ -595,6 +727,40 @@ static int sample_mouse(PadData *d) {
     const float blend=dt/(dt+25.0f);
     vx+=(dx/dt-vx)*blend;
     vy+=(dy/dt-vy)*blend;
+    /* 20 Nov 2026 (GitHub #185): pushing a dumpster or a pallet the right stick steers the object
+     * and the camera follows it (runtime_mouselook_push_heading), at most about 33 degrees/s at the
+     * full stick: the mouse needed swipe after swipe. There the mouse stays the speed stick, but
+     * left/right asks for PUSH_GAIN times the deflection, and past the full stick the stick boost
+     * (runtime_mouselook.h) lets the object turn that much faster. Up/down is unchanged. */
+    {
+        enum { PUSH_GAIN = 4 };
+        float heading;
+        if (captured && runtime_mouselook_push_heading(&heading)) {
+            gow3gpu_mouse_look_pause(1);
+            if (now-last_motion>60000) { vx=vy=0; return used; }
+            float sx=vx*sensitivity*0.40f*invert_x, sy=vy*sensitivity*0.40f*invert*(vertical>0.0f ? vertical : 1.0f);
+            sx=fabsf(sx)>0.002f ? (sx<0.0f ? -1.0f : 1.0f)*(0.15f+0.85f*powf(fabsf(sx),2.0f/3.0f))*PUSH_GAIN : 0.0f;
+            sy=fabsf(sy)>0.002f ? (sy<0.0f ? -1.0f : 1.0f)*fminf(1.0f,0.15f+0.85f*powf(fabsf(sy),2.0f/3.0f)) : 0.0f;
+            float boost=1.0f;
+            if (fabsf(sx)>1.0f) {
+                boost=fabsf(sx)>50.0f ? 50.0f : fabsf(sx);
+                sx=sx<0.0f ? -1.0f : 1.0f;
+                runtime_mouselook_set_stick_boost(boost);
+                sy/=boost; /* the boost multiplies both axes */
+            }
+            if (mouse_look_debug()) {
+                static uint64_t push_debug_last;
+                if (now-push_debug_last>=1000000) {
+                    printf("Mouse debug: pushing, heading %.1f, stick %.2f %.2f, boost %.1f\n",heading,sx,sy,boost);
+                    fflush(stdout);
+                    push_debug_last=now;
+                }
+            }
+            if (sx!=0.0f) d->right_x=(uint8_t)(128.0f+sx*127.0f);
+            if (sy!=0.0f) d->right_y=(uint8_t)(sy<-1.0f ? 0 : sy>1.0f ? 255 : (int)(128.0f+sy*127.0f));
+            return used;
+        }
+    }
     if (!captured || now-last_motion>60000) { vx=vy=0; return used; }
     /* Mouse look drives the game's camera directly (src/runtime_mouselook.c): no stick. While
      * aiming the games turn their aim cameras by the right stick, so the mouse is the stick then
@@ -644,6 +810,38 @@ static int sample_mouse(PadData *d) {
     d->right_y=(uint8_t)(sy<-1.0f ? 0 : sy>1.0f ? 255 : (int)(128.0f+sy*127.0f));
     return used;
 }
+/* The PS4 button of each DirectInput joystick button (current_joystick), by button number:
+ * GOW3_DINPUT_BUTTONS="<button 0>,<button 1>,..." with the GOW3_PAD_MAP names (cross, circle,
+ * square, triangle, l1, r1, l2, r2, l3, r3, options, touchpad_left, touchpad_right, up, down,
+ * left, right, shake); an empty entry or "-" leaves that button unused. The default is the
+ * common layout of generic PlayStation-style pads (Logitech Dual Action, console-pad adapters, a
+ * DualShock 4 seen through DirectInput): square cross circle triangle l1 r1 l2 r2 share(right
+ * touchpad click) options l3 r3, PS unused, touchpad. */
+enum { DINPUT_BUTTONS=32 };
+static const uint32_t *dinput_button_map(void) {
+    static uint32_t map[DINPUT_BUTTONS];
+    static int ready;
+    if (ready) return map;
+    ready=1;
+    const char *e=getenv("GOW3_DINPUT_BUTTONS");
+    const char *layout=e && *e ? e : "square,cross,circle,triangle,l1,r1,l2,r2,touchpad_right,options,l3,r3,-,touchpad_left";
+    char token[32];
+    int index=0;
+    for (const char *p=layout;index<DINPUT_BUTTONS;++index) {
+        size_t n=strcspn(p,",");
+        size_t a=0, b=n;
+        while (a<b && isspace((unsigned char)p[a])) ++a;
+        while (b>a && isspace((unsigned char)p[b-1])) --b;
+        if (b-a>0 && b-a<sizeof(token) && !(b-a==1 && p[a]=='-')) {
+            memcpy(token,p+a,b-a); token[b-a]=0;
+            for (size_t i=0;i<sizeof(ps_names)/sizeof(*ps_names);++i) if (!SDL_strcasecmp(token,ps_names[i].name)) map[index]=ps_names[i].ps;
+            if (!map[index]) printf("Runtime: GOW3_DINPUT_BUTTONS: unknown button '%s' (button %d unused)\n",token,index);
+        }
+        if (!p[n]) break;
+        p+=n+1;
+    }
+    return map;
+}
 static void sample_host(PadData *d) {
     memset(d,0,sizeof(*d));
     d->left_x=d->left_y=d->right_x=d->right_y=128;
@@ -652,6 +850,7 @@ static void sample_host(PadData *d) {
     d->timestamp=now_us();
     SDL_Gamepad *g=current_gamepad();
     prompt_activity.keyboard=prompt_activity.gamepad=0;
+    runtime_menu_exit_tick();
     if (gow3gpu_overlay_captures_input()) return; /* settings menu open: neutral input */
     const bool *k=SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetKeyboardState(NULL) : NULL;
     bool walk_held=false;
@@ -673,6 +872,14 @@ static void sample_host(PadData *d) {
         /* Past half way: resting sticks that drift do not count as use. */
         gamepad_used=mapped || abs(d->left_x-128)>64 || abs(d->left_y-128)>64 || abs(d->right_x-128)>64 ||
                      abs(d->right_y-128)>64 || d->l2>64 || d->r2>64;
+        float accel[3];
+        if (sensor_shake_enabled() && SDL_GamepadSensorEnabled(g,SDL_SENSOR_ACCEL) &&
+            SDL_GetGamepadSensorData(g,SDL_SENSOR_ACCEL,accel,3)) {
+            for (int i=0;i<3;++i) accel[i]/=SDL_STANDARD_GRAVITY;
+            const int shaking=shake_detect(&sensor_shake,accel,3,1.2f,d->timestamp);
+            shake_log(&sensor_shake,shaking,"accelerometer",1.2f,d->timestamp);
+            if (shaking) { d->buttons|=PAD_SHAKE; gamepad_used=1; }
+        }
         if (SDL_GetNumGamepadTouchpads(g)>0) {
             const int fingers=SDL_GetNumGamepadTouchpadFingers(g,0);
             for (int finger=0;finger<fingers && d->touch_count<2;++finger) {
@@ -684,6 +891,33 @@ static void sample_host(PadData *d) {
                 }
             }
         }
+    }
+    SDL_Joystick *j=g ? NULL : current_joystick();
+    if (j) {
+        d->left_x=joystick_axis(j,dinput_axes[0]); d->left_y=joystick_axis(j,dinput_axes[1]);
+        d->right_x=joystick_axis(j,dinput_axes[2]); d->right_y=joystick_axis(j,dinput_axes[3]);
+        d->l2=joystick_trigger(j,dinput_axes[4]); d->r2=joystick_trigger(j,dinput_axes[5]);
+        if (dinput_axes[6]>=0 && dinput_axes[6]<SDL_GetNumJoystickAxes(j)) {
+            const float value=SDL_GetJoystickAxis(j,dinput_axes[6])/32767.0f;
+            const int shaking=shake_detect(&axis_shake,&value,1,2.5f,d->timestamp);
+            shake_log(&axis_shake,shaking,"shake axis",2.5f,d->timestamp);
+            if (shaking) d->buttons|=PAD_SHAKE;
+        }
+        if (d->l2>30) d->buttons|=BTN_L2;
+        if (d->r2>30) d->buttons|=BTN_R2;
+        if (SDL_GetNumJoystickHats(j)>0) {
+            const Uint8 hat=SDL_GetJoystickHat(j,0);
+            if (hat & SDL_HAT_UP) d->buttons|=BTN_UP;
+            if (hat & SDL_HAT_DOWN) d->buttons|=BTN_DOWN;
+            if (hat & SDL_HAT_LEFT) d->buttons|=BTN_LEFT;
+            if (hat & SDL_HAT_RIGHT) d->buttons|=BTN_RIGHT;
+        }
+        const uint32_t *buttons=dinput_button_map();
+        const int count=SDL_GetNumJoystickButtons(j);
+        for (int i=0;i<count && i<DINPUT_BUTTONS;++i) if (buttons[i] && SDL_GetJoystickButton(j,i)) d->buttons|=buttons[i];
+        /* L2 and R2 as buttons press their triggers fully further down. */
+        gamepad_used=d->buttons || d->l2>64 || d->r2>64 || abs(d->left_x-128)>64 ||
+                     abs(d->left_y-128)>64 || abs(d->right_x-128)>64 || abs(d->right_y-128)>64;
     }
     /* The keyboard works with or without a gamepad: its buttons add to the pad's, and a stick
      * follows the keys only while one of them is held. GOW3_KEYBOARD=0 turns it off (typing in
@@ -705,7 +939,7 @@ static void sample_host(PadData *d) {
     if (d->buttons & BTN_R2) d->r2=255;
     prompt_activity.keyboard=keyboard_used;
     prompt_activity.gamepad=gamepad_used;
-    prompt_activity.connected=g!=NULL;
+    prompt_activity.connected=g!=NULL || j!=NULL;
 }
 
 /* GOW3_PAD_FILE=<file>: scripted input for automated runs. The file holds whitespace-separated
@@ -994,4 +1228,4 @@ static const RuntimeExport exports[]={
     {"scePadSetMotionSensorState",pad_ok_handle_flag},
 };
 uintptr_t runtime_pad_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
-void runtime_pad_report(void) { printf("Runtime: pad reads=%zu, gamepad=%s\n",reads,gamepad ? SDL_GetGamepadName(gamepad) : "none"); }
+void runtime_pad_report(void) { printf("Runtime: pad reads=%zu, gamepad=%s\n",reads,gamepad ? SDL_GetGamepadName(gamepad) : joystick ? SDL_GetJoystickName(joystick) : "none"); }

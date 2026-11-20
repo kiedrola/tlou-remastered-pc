@@ -14,4 +14,9 @@ void StartCurrent(const char* name);
 /// A frame took `frame_ms` (GOW3_PROFILE_STALLS=1): the samplers write what they sampled in it.
 void NoteStall(double frame_ms);
 
+/// A game frame reached the presenter. The first call starts the hang watch (Windows,
+/// GOW3_HANG_WATCH=<seconds>, default 10, 0: off): when no frame comes for that long, every
+/// thread's stack goes to the log, so a freeze reports where each thread waits.
+void HangBeat();
+
 } // namespace Gow3Profiler

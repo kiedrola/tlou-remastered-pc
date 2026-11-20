@@ -972,6 +972,7 @@ private:
         u32 count = 0; ///< fences deferred on this label and not landed yet
     };
     std::unordered_map<VAddr, DeferredValue> deferred_values; ///< newest value per label
+    bool deferred_long_label = false; ///< a label over 8 bytes was deferred (DeferredFenceTick scans)
     void ReleaseDeferredLabel(VAddr label, u32 label_bytes);
     /// Atomic: with multithreaded rendering the draw recording thread defers fences while the GPU
     /// command thread checks for them (it drains that thread before touching the rest).

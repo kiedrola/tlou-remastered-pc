@@ -33,6 +33,8 @@ int gow3gpu_text_input_poll(char *out_utf8, uint64_t size);
  * poll: -1 while open, -2 cancelled, else the chosen index. */
 int gow3gpu_choice_begin(const char *title, const char *const *items, const char *const *images, int count, int focus);
 int gow3gpu_choice_poll(void);
+/* Closes the game the way the window's close button does (cache flush, then exit). */
+void gow3gpu_request_exit(void);
 /* Trophies (gow3_trophies.cpp): the running game's list (its trophy pack, a host path; the list
  * number 1-3; 128 earned flags), then each newly earned trophy, shown as a popup. */
 void gow3gpu_trophy_list(const char *pack_path, int list, const uint32_t earned[4]);
@@ -85,6 +87,8 @@ float gow3gpu_controls_mouse_sens(void);
 /* gow3 20 Oct 2026: while aiming (times mouse_sens), up/down compared with left/right, invert left/right. */
 float gow3gpu_controls_mouse_aim_sens(void);
 float gow3gpu_controls_mouse_vertical(void);
+/* 19 Nov 2026: with a scope, times the aim sensitivity (GitHub #168). */
+float gow3gpu_controls_mouse_scope_sens(void);
 int gow3gpu_controls_mouse_invert_x(void);
 int gow3gpu_controls_mouse_invert(void);
 float gow3gpu_controls_stick_speed(void);
@@ -96,6 +100,33 @@ int gow3gpu_controls_vibration(void);
 int gow3gpu_settings_fade_distance(void);
 int gow3gpu_settings_sun_shadow_distance(void);
 int gow3gpu_settings_light_shadow_distance(void);
+/* The game's own Options > PC SETTINGS page (src/runtime_menu_pc.c). A setting's value: 0/1,
+ * a list index (display mode, FpsLimits, the anti-aliasing choices available) or a percent.
+ * count: the values of a toggle or list (2 for on/off; anti-aliasing 1 when this game has none).
+ * choice: a list value's name (FPS and anti-aliasing; NULL otherwise). set: applied live; save:
+ * the settings file. menu_open: opens the overlay settings menu (on the next presented frame),
+ * from any thread. */
+enum {
+    GOW3_PC_DISPLAY_MODE, GOW3_PC_VSYNC, GOW3_PC_FPS_LIMIT, GOW3_PC_ANTI_ALIASING, GOW3_PC_SHARPENING,
+    GOW3_PC_PERF_OVERLAY, GOW3_PC_MOUSE_SENS, GOW3_PC_MOUSE_AIM_SENS, GOW3_PC_MOUSE_SCOPE_SENS, GOW3_PC_MOUSE_VERTICAL,
+    GOW3_PC_MOUSE_INVERT, GOW3_PC_VIBRATION, GOW3_PC_SETTING_COUNT
+};
+int gow3gpu_pc_setting(int setting);
+int gow3gpu_pc_setting_count(int setting);
+const char *gow3gpu_pc_setting_choice(int setting, int index);
+void gow3gpu_pc_setting_set(int setting, int value);
+void gow3gpu_pc_settings_save(void);
+void gow3gpu_settings_menu_open(void);
+/* The game's own save list page (src/runtime_menu_saves.c): the rows' pictures (PNG paths, NULL:
+ * none; decoded here), then the row whose picture shows (-1: none), from any thread. */
+void gow3gpu_preview_begin(const char *const *images, int count);
+void gow3gpu_preview_show(int index);
+/* With the index: the picture goes in the box of the game's Chapters picture (the game reserved
+ * it but has no art for it), else under the texts beside the list. */
+#define GOW3_PREVIEW_PICTURE_BOX 0x10000
+/* The Last of Us Remastered: the Chapters page's 12 area pictures (gow3_chapter_art.cpp) from the
+ * game's common.psarc (host path) into out_dir/area-<i>.png; the number written. */
+int gow3gpu_chapter_art(const char *common_psarc, const char *out_dir);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned gow3gpu_symbol_count(void);
 #ifdef __cplusplus

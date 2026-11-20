@@ -385,6 +385,7 @@ static void LogFrameEvent(char kind) {
 
 void VideoOutDriver::Flip(const Request& req) {
     LogFrameEvent('P');
+    Gow3Profiler::HangBeat();
     // Update HDR status before presenting, then present the frame (gow3: on the swap thread).
     RunPresenter([this, frame = req.frame, hdr = req.port->is_hdr] {
         presenter->SetHDR(hdr);

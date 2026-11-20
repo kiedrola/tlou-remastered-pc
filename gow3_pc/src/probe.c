@@ -9,6 +9,10 @@
 #include "cpu_check.h"
 #include "red_zone.h"
 #include "orb_hook.h"
+#include "menu_exit_hook.h"
+#include "runtime_menu_exit.h"
+#include "runtime_menu_pc.h"
+#include "runtime_menu_saves.h"
 #include "cheat_hook.h"
 #include "actor_hook.h"
 #include "damage_hook.h"
@@ -1011,6 +1015,102 @@ static void install_stat_multipliers(Segment *segments, uint64_t count, uint64_t
     printf("Multipliers: damage %s, green/blue/gold orbs %s\n", damage ? "ready" : "unavailable",
            pickup ? "ready" : "unavailable");
 }
+/* QUIT in the lobby and the pause menu (src/menu_exit_hook.h): the menu data gets the button as it
+ * loads, and the dispatcher tells the runtime when it is pressed. GOW3_MENU_EXIT=0 leaves it out. */
+static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) {
+    const char *env = getenv("GOW3_MENU_EXIT");
+    if (env && env[0] == '0') return;
+    const uint64_t load_at = gow3_signature_find(image, size, &gow3_menu_load_site);
+    const uint64_t click_at = gow3_signature_find(image, size, &gow3_menu_click_site);
+    if (load_at == UINT64_MAX || click_at == UINT64_MAX || !mapped(segments, count, load_at, GOW3_MENU_LOAD_LENGTH) ||
+        !mapped(segments, count, click_at, GOW3_MENU_CLICK_LENGTH)) {
+        puts("Menu: QUIT button unavailable (code not found in this eboot.bin)");
+        return;
+    }
+    /* The arena: the exit button's lists and the PC settings page (src/menu_pc_hook.h: the page
+     * table is copied, ~14 KiB per menu data load). */
+    enum { CLICK_STUB = 512, TEXT_STUB = 1024, OPTION_STUB = 1536, UPDATE_STUB = 2048, ARENA_PAGES = 64 };
+    uint64_t update_at = UINT64_MAX;
+    unsigned char *stubs = allocate_near_image(size);
+    unsigned char *arena = allocate(page_size * ARENA_PAGES);
+    if (!stubs || !arena) {
+        puts("Menu: QUIT button unavailable (no memory in range)");
+        return;
+    }
+    gow3_menu_build_click_stub(stubs + CLICK_STUB, (uintptr_t)runtime_menu_exit_button,
+                               (uintptr_t)(image + click_at + GOW3_MENU_CLICK_LENGTH), image + click_at);
+    gow3_menu_build_load_stub(stubs, (uintptr_t)runtime_menu_exit_data_loaded,
+                              (uintptr_t)(image + load_at + GOW3_MENU_LOAD_LENGTH), image + load_at);
+    /* The button's own label (QUIT TO DESKTOP, translated); the game's QUIT without this hook. */
+    const uint64_t text_at = gow3_signature_find(image, size, &gow3_menu_text_lookup);
+    const int text = text_at != UINT64_MAX && mapped(segments, count, text_at, GOW3_MENU_TEXT_LENGTH);
+    unsigned text_original = 0;
+    if (text)
+        gow3_menu_build_text_stub(stubs + TEXT_STUB, (uintptr_t)runtime_menu_exit_text,
+                                  (uintptr_t)(image + text_at + GOW3_MENU_TEXT_LENGTH), image + text_at, &text_original);
+    /* The PC settings page's toggles and sliders: the binding factory's two calls go to a stub
+     * that hands our option sids to the runtime (src/menu_pc_hook.h). */
+    const char *pc_menu = getenv("GOW3_PC_MENU");
+    const int pc_enabled = text && !(pc_menu && pc_menu[0] == '0');
+    const uint64_t factory_at = pc_enabled ? gow3_signature_find(image, size, &gow3_menu_binding_factory) : UINT64_MAX;
+    uint64_t factory_calls[GOW3_MENU_BINDING_CALLS];
+    const unsigned factory_call_count = factory_at == UINT64_MAX ? 0
+        : gow3_menu_find_calls(image, size, factory_at, factory_calls, GOW3_MENU_BINDING_CALLS);
+    const int options = factory_call_count == GOW3_MENU_BINDING_CALLS;
+    if (options) {
+        gow3_menu_build_option_stub(stubs + OPTION_STUB, (uintptr_t)runtime_menu_pc_binding, (uintptr_t)(image + factory_at));
+        runtime_menu_pc_set_factory(image + factory_at);
+        /* The save list page (src/runtime_menu_saves.c) opens and closes with the game's own
+         * page navigation. */
+        const uint64_t open_at = gow3_signature_find(image, size, &gow3_menu_page_open);
+        const uint64_t back_at = gow3_signature_find(image, size, &gow3_menu_page_back);
+        if (open_at != UINT64_MAX && back_at != UINT64_MAX) runtime_menu_saves_set_navigation(image + open_at, image + back_at, image + click_at);
+        update_at = gow3_signature_find(image, size, &gow3_menu_update_site);
+        if (update_at != UINT64_MAX && mapped(segments, count, update_at, GOW3_MENU_UPDATE_LENGTH))
+            gow3_menu_build_click_stub(stubs + UPDATE_STUB, (uintptr_t)runtime_menu_saves_update,
+                                       (uintptr_t)(image + update_at + GOW3_MENU_UPDATE_LENGTH), image + update_at);
+        else
+            update_at = UINT64_MAX;
+    }
+    protect(stubs, page_size, 5);
+    runtime_menu_exit_set_arena(arena, page_size * ARENA_PAGES);
+    const uint64_t confirm_at = gow3_signature_find(image, size, &gow3_menu_confirm_open);
+    const int confirm = confirm_at != UINT64_MAX && mapped(segments, count, confirm_at, 36);
+    if (confirm) runtime_menu_exit_set_confirm(image + confirm_at);
+    if (!install_jump(click_at, GOW3_MENU_CLICK_LENGTH, stubs + CLICK_STUB) ||
+        !install_jump(load_at, GOW3_MENU_LOAD_LENGTH, stubs)) {
+        puts("Menu: QUIT button unavailable (hook outside relative-jump range)");
+        return;
+    }
+    const int label = text && install_jump(text_at, GOW3_MENU_TEXT_LENGTH, stubs + TEXT_STUB);
+    if (label) runtime_menu_exit_set_text(stubs + TEXT_STUB + text_original);
+    printf("Menu: QUIT button hooks ready (data loader %#llx, dispatcher %#llx, label %s, pause menu asks %s)\n",
+           (unsigned long long)load_at, (unsigned long long)click_at,
+           label ? "QUIT TO DESKTOP" : "QUIT (text lookup not found)",
+           confirm ? "on the game's Yes/No page" : "in an overlay (game's Yes/No page not found)");
+    /* The PC settings page's labels are ours: without the text hook it is left out. Its values
+     * need both factory calls redirected (5-byte calls: only the target changes). */
+    int redirected = 0;
+    for (unsigned i = 0; options && label && i < GOW3_MENU_BINDING_CALLS; ++i) {
+        const int64_t delta = (int64_t)(uintptr_t)(stubs + OPTION_STUB) - (int64_t)(uintptr_t)(image + factory_calls[i] + 5);
+        if (delta < INT32_MIN || delta > INT32_MAX) continue;
+        const int32_t relative = (int32_t)delta;
+        memcpy(image + factory_calls[i] + 1, &relative, 4);
+        ++redirected;
+    }
+    if (!label) puts("Menu: Options > PC SETTINGS unavailable (text lookup not found)");
+    else if (!pc_enabled) puts("Menu: Options > PC SETTINGS off (GOW3_PC_MENU=0)");
+    else if (redirected == GOW3_MENU_BINDING_CALLS)
+        printf("Menu: Options > PC SETTINGS ready (option factory %#llx)\n", (unsigned long long)factory_at);
+    else
+        printf("Menu: Options > PC SETTINGS without values (option factory %s, %u calls, %d redirected)\n",
+               factory_at == UINT64_MAX ? "not found" : "found", factory_call_count, redirected);
+    /* The save list page opens from the menu's own update (src/runtime_menu_saves.c). */
+    const int update = redirected == GOW3_MENU_BINDING_CALLS && update_at != UINT64_MAX &&
+                       install_jump(update_at, GOW3_MENU_UPDATE_LENGTH, stubs + UPDATE_STUB);
+    if (update) runtime_menu_saves_set_update_hooked();
+    printf("Menu: save list page %s\n", update ? "ready (opened from the menu update)" : "unavailable (menu update not found)");
+}
 /* G3PATCH2 (patches.py): the patches' image base, then byte writes at image offsets, applied
  * after relocation. A write may replace a whole base-relative pointer slot (60/90 FPS++ swap
  * function pointers): the patch holds the address at the patches' base, rebased here. */
@@ -1369,6 +1469,7 @@ int main(int argc, char **argv) {
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
     if (gpu_enabled) install_mouse_look(segments, ns, size);
     if (gpu_enabled) install_stick_boost(segments, ns, size);
+    if (gpu_enabled) install_menu_exit(segments, ns, size);
     runtime_gamesettings_set_image(image, size);
     if (gpu_enabled && game_hooks) {
         install_orb_multiplier(segments, ns, size);

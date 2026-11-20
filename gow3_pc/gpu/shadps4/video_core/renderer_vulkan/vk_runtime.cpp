@@ -738,7 +738,14 @@ void Runtime::CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst) {
             // gow3 15 Nov 2026 (SpartanPort d698ec9): a buffer of the copy's size instead of
             // 128 MiB, in every mode. Most of these copies are one depth target (a few MiB); a
             // 128 MiB request each time wrapped the staging ring and waited on its fences.
-            const u64 request = CopyWithBufferBytes(src, dst);
+            // GOW3_COPY_STAGING_SIZED=0 (launcher debug menu): 128 MiB as before, except in
+            // the low video memory mode.
+            static const bool sized = [] {
+                const char* env = std::getenv("GOW3_COPY_STAGING_SIZED");
+                return !(env && env[0] == '0');
+            }();
+            const u64 request =
+                sized || LowVram::Enabled() ? CopyWithBufferBytes(src, dst) : u64(128_MB);
             const auto copy_ref =
                 staging_pool.Request(request, VideoCore::MemoryType::DeviceLocal, 256);
             CopyImageWithBuffer(src, dst, copy_ref.buffer, copy_ref.offset);

@@ -41,6 +41,12 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent);
 
 /// The menu is open or a text entry is shown: the game's input is held neutral.
 bool CapturesInput();
+/// Any thread (the game's Options > PC SETTINGS page): the menu opens on the next presented frame.
+void RequestOpen();
+/// The game's save list page (src/runtime_menu_saves.c): its rows' pictures (empty: none), and the
+/// row whose picture is drawn where the game's Chapters page has its own (-1: none; any thread).
+void SetPreviewPictures(std::vector<Gow3Png::Image> pictures);
+void ShowPreview(int index);
 
 /// Window thread: the game's text dialog (sceImeDialog). Shown as a box on screen until
 /// `active` is false; typing goes to the window (sdl_window), the box only displays it.

@@ -7,6 +7,7 @@ for the launcher's window; default none)
 """
 import ctypes
 import json
+import math
 import os
 from pathlib import Path
 import random
@@ -36,8 +37,27 @@ UPSCALERS = {"off": "off", "FSR 3": "fsr3", "TAA": "taa", "DLSS": "dlss"}
 PRESETS = {"q_native": "0", "q_quality": "1", "q_balanced": "2", "q_performance": "3", "q_ultra": "4"}
 # The size the game draws at (output_res in tlou.ini; tools/probe_tlou.py patches the game's
 # render size to it at start). The ultrawide sizes (21:9, 32:9) also get the aspect ratio patches.
-RESOLUTIONS = ["1280x720", "1600x900", "1920x1080", "2560x1440", "2880x1620", "3200x1800", "3840x2160",
-               "2560x1080", "3440x1440", "3840x1600", "3840x1080", "5120x1440"]
+# Sizes above 4K's pixel count (5120x2160) do not fit the game's GPU memory (render_extra_mib).
+RESOLUTIONS = ["640x360", "854x480", "960x540", "1024x576", "1152x648", "1280x720", "1366x768", "1600x900",
+               "1920x1080", "2560x1440", "2880x1620", "3200x1800", "3840x2160",
+               "1024x640", "1152x720", "1280x800", "1440x900", "1680x1050", "1920x1200", "2560x1600",
+               "2560x1080", "3440x1440", "3840x1600",
+               "3840x1080", "5120x1440"]
+ASPECT_NAMES = [("16:9", 16 / 9, 0.01), ("16:10", 1.6, 0.01), ("21:9", 2.37, 0.035), ("32:9", 32 / 9, 0.01),
+                ("4:3", 4 / 3, 0.01), ("5:4", 1.25, 0.01)]
+
+
+def resolution_label(size):
+    """"1920x1080 (16:9)": the name monitors are sold with (2560x1080, 3440x1440, 3840x1600: 21:9)."""
+    try:
+        width, height = (int(part) for part in size.lower().split("x"))
+    except ValueError:
+        return size
+    for name, ratio, tolerance in ASPECT_NAMES:
+        if abs(width / height / ratio - 1) < tolerance:
+            return f"{width}x{height} ({name})"
+    gcd = math.gcd(width, height)
+    return f"{width}x{height} ({width // gcd}:{height // gcd})"
 DEFAULT_SWITCHES = {"motion_blur": False, "job_sleep": True, "profile": False, "background_shaders": True,
                     "pro_shadows": True, "ambient_half": True, "quarter_depth": True, "low_vram": "auto"}
 # Video memory (GOW3_LOW_VRAM, gpu/shadps4/video_core/renderer_vulkan/vk_low_vram.h): auto turns the
@@ -131,6 +151,18 @@ STARTUP = [
         # dimming, fades, damage vignette, the rifle scope's black frame) reach the screen's edges
         # (gow3_pc/src/runtime_hud.c); off: they stop at the 16:9 edges as before.
         ("Camadas do HUD até as bordas (ultrawide)", "GOW3_HUD_BARS", "1", "0", True),
+    ]),
+    # 15-19 Nov 2026 optimizations, each switchable for A/B tests (off: the code as before).
+    ("Otimizações recentes", [
+        ("Page watchers sob demanda (512 MiB a menos de RAM)", "GOW3_LAZY_PAGE_WATCHERS", "1", "0", True),
+        ("Lock rápido da tabela de memória", "GOW3_FAST_REGION_LOCK", "1", "0", True),
+        ("Busca rápida de locks, semáforos e threads", "GOW3_REGISTRY_FRONT", "1", "0", True),
+        ("Busca direta de fences adiados", "GOW3_FENCE_LOOKUP", "1", "0", True),
+        ("Busca de imagens só na primeira página", "GOW3_IMAGE_FIRST_PAGE", "1", "0", True),
+        ("Staging das cópias do tamanho da cópia", "GOW3_COPY_STAGING_SIZED", "1", "0", True),
+        ("Ritmo de quadros estável após engasgos", "GOW3_FLIP_REBASE", "1", "0", True),
+        ("Aquecer só os 1.000 shaders mais recentes (menos RAM)", "GOW3_WARMUP_LIMIT", "1000", "0", True),
+        ("Duas threads no aquecimento de shaders (NVIDIA)", "GOW3_WARMUP_THREADS", "2", "0", True),
     ]),
 ]
 
@@ -776,6 +808,96 @@ DEBUG_TEXT = {
         'Warstwy HUD do krawędzi ekranu (ultrawide)',
         'Слои HUD до краёв экрана (ultrawide)',
         'HUDのレイヤーを画面端まで表示 (ウルトラワイド)'),
+    'Otimizações recentes': (
+        'Recent optimizations',
+        'Optimizaciones recientes',
+        'Optimisations récentes',
+        'Neue Optimierungen',
+        'Ottimizzazioni recenti',
+        'Najnowsze optymalizacje',
+        'Новые оптимизации',
+        '最近の最適化'),
+    'Page watchers sob demanda (512 MiB a menos de RAM)': (
+        'Page watchers on demand (512 MiB less RAM)',
+        'Vigilantes de páginas bajo demanda (512 MiB menos de RAM)',
+        'Surveillance des pages à la demande (512 Mio de RAM en moins)',
+        'Seitenwächter bei Bedarf (512 MiB weniger RAM)',
+        'Controllo pagine su richiesta (512 MiB di RAM in meno)',
+        'Nadzór stron na żądanie (512 MiB mniej RAM)',
+        'Отслеживание страниц по запросу (на 512 МиБ меньше ОЗУ)',
+        'ページ監視をオンデマンドで確保 (RAMを512 MiB削減)'),
+    'Lock rápido da tabela de memória': (
+        'Fast memory table lock',
+        'Bloqueo rápido de la tabla de memoria',
+        'Verrou rapide de la table mémoire',
+        'Schnelle Sperre der Speichertabelle',
+        'Blocco rapido della tabella di memoria',
+        'Szybka blokada tabeli pamięci',
+        'Быстрая блокировка таблицы памяти',
+        'メモリテーブルの高速ロック'),
+    'Busca rápida de locks, semáforos e threads': (
+        'Fast lookup of locks, semaphores and threads',
+        'Búsqueda rápida de bloqueos, semáforos e hilos',
+        'Recherche rapide des verrous, sémaphores et threads',
+        'Schnelle Suche nach Sperren, Semaphoren und Threads',
+        'Ricerca rapida di lock, semafori e thread',
+        'Szybkie wyszukiwanie blokad, semaforów i wątków',
+        'Быстрый поиск блокировок, семафоров и потоков',
+        'ロック・セマフォ・スレッドの高速検索'),
+    'Busca direta de fences adiados': (
+        'Direct lookup of deferred fences',
+        'Búsqueda directa de fences diferidos',
+        'Recherche directe des fences différés',
+        'Direkte Suche verzögerter Fences',
+        'Ricerca diretta dei fence differiti',
+        'Bezpośrednie wyszukiwanie odroczonych fence',
+        'Прямой поиск отложенных fence',
+        '遅延フェンスの直接検索'),
+    'Busca de imagens só na primeira página': (
+        'Image lookup in the first page only',
+        'Búsqueda de imágenes solo en la primera página',
+        'Recherche d’images dans la première page seulement',
+        'Bildsuche nur auf der ersten Seite',
+        'Ricerca immagini solo nella prima pagina',
+        'Wyszukiwanie obrazów tylko na pierwszej stronie',
+        'Поиск изображений только на первой странице',
+        '最初のページのみで画像を検索'),
+    'Staging das cópias do tamanho da cópia': (
+        'Copy staging sized to the copy',
+        'Staging de copias del tamaño de la copia',
+        'Tampon des copies à la taille de la copie',
+        'Kopierpuffer in Kopiergröße',
+        'Staging delle copie della dimensione della copia',
+        'Bufor kopii o rozmiarze kopii',
+        'Буфер копирования по размеру копии',
+        'コピーサイズに合わせたステージング'),
+    'Ritmo de quadros estável após engasgos': (
+        'Even frame pacing after hitches',
+        'Ritmo de fotogramas estable tras tirones',
+        'Rythme d’images régulier après les saccades',
+        'Gleichmäßiges Frame-Pacing nach Rucklern',
+        'Ritmo dei fotogrammi stabile dopo gli scatti',
+        'Równe tempo klatek po przycięciach',
+        'Ровный темп кадров после подтормаживаний',
+        'カクつき後のフレーム間隔を安定化'),
+    'Aquecer só os 1.000 shaders mais recentes (menos RAM)': (
+        'Warm up only the 1,000 most recent shaders (less RAM)',
+        'Precargar solo los 1.000 shaders más recientes (menos RAM)',
+        'Préchauffer seulement les 1 000 shaders les plus récents (moins de RAM)',
+        'Nur die 1.000 neuesten Shader vorladen (weniger RAM)',
+        'Precaricare solo i 1.000 shader più recenti (meno RAM)',
+        'Wstępnie ładuj tylko 1000 najnowszych shaderów (mniej RAM)',
+        'Прогревать только 1000 последних шейдеров (меньше ОЗУ)',
+        '最近の1,000個のシェーダーのみ事前読み込み (RAM削減)'),
+    'Duas threads no aquecimento de shaders (NVIDIA)': (
+        'Two threads for the shader warm-up (NVIDIA)',
+        'Dos hilos para la precarga de shaders (NVIDIA)',
+        'Deux threads pour le préchauffage des shaders (NVIDIA)',
+        'Zwei Threads für das Shader-Vorladen (NVIDIA)',
+        'Due thread per il precaricamento degli shader (NVIDIA)',
+        'Dwa wątki do wstępnego ładowania shaderów (NVIDIA)',
+        'Два потока для прогрева шейдеров (NVIDIA)',
+        'シェーダー事前読み込みに2スレッド (NVIDIA)'),
 }
 
 # Controls window: the keyboard and mouse maps the game reads from tlou.ini (key_map, mouse_map:
@@ -1023,6 +1145,9 @@ CONTROL_TEXT = {
     'Sensibilidade ao mirar': ('Aim sensitivity', 'Sensibilidad al apuntar', 'Sensibilité en visée',
                                'Empfindlichkeit beim Zielen', 'Sensibilità in mira', 'Czułość podczas celowania',
                                'Чувствительность при прицеливании', 'エイム時の感度'),
+    'Sensibilidade com luneta': ('Scope sensitivity', 'Sensibilidad con mira telescópica', 'Sensibilité avec lunette',
+                                 'Empfindlichkeit mit Zielfernrohr', 'Sensibilità con mirino', 'Czułość z lunetą',
+                                 'Чувствительность с прицелом', 'スコープ時の感度'),
     'Inverter eixo vertical': ('Invert vertical axis', 'Invertir eje vertical', "Inverser l'axe vertical",
                                'Vertikale Achse umkehren', 'Inverti asse verticale', 'Odwróć oś pionową',
                                'Инвертировать вертикальную ось', '上下を反転'),
@@ -1116,6 +1241,143 @@ CONTROL_TEXT = {
         'Wyłączone: gra nie pomaga celownikowi podążać za wrogami. Działa od następnego uruchomienia gry.',
         'Выкл.: игра не помогает прицелу следовать за врагами. Действует со следующего запуска игры.',
         'オフ: 照準が敵を追うのをゲームが補助しません。次回のゲーム起動時から有効です。'),
+    'Lanterna': ('Flashlight', 'Linterna', 'Lampe torche', 'Taschenlampe', 'Torcia', 'Latarka', 'Фонарик',
+                 '懐中電灯'),
+    'Lanterna nunca falha': ('Flashlight never flickers', 'La linterna nunca falla', 'La lampe ne faiblit jamais',
+                             'Taschenlampe flackert nie', 'La torcia non si guasta mai', 'Latarka nigdy nie migocze',
+                             'Фонарик никогда не мигает', '懐中電灯がちらつかない'),
+    'Ligada: a lanterna não pisca nem apaga, sem precisar agitar o controle. Vale na próxima vez que o jogo abrir.': (
+        'On: the flashlight does not flicker or go out, with no need to shake the controller. Applies the next time '
+        'the game starts.',
+        'Activada: la linterna no parpadea ni se apaga, sin necesidad de agitar el mando. Se aplica la próxima vez '
+        'que se abra el juego.',
+        "Activée : la lampe ne clignote pas et ne s'éteint pas, sans secouer la manette. S'applique au prochain "
+        "lancement du jeu.",
+        'An: Die Taschenlampe flackert nicht und geht nicht aus, ohne den Controller zu schütteln. Gilt ab dem '
+        'nächsten Spielstart.',
+        'Attiva: la torcia non sfarfalla né si spegne, senza dover scuotere il controller. Vale dal prossimo avvio '
+        'del gioco.',
+        'Włączone: latarka nie migocze ani nie gaśnie, bez potrząsania padem. Działa od następnego uruchomienia gry.',
+        'Вкл.: фонарик не мигает и не гаснет, трясти геймпад не нужно. Действует со следующего запуска игры.',
+        'オン: コントローラーを振らなくても懐中電灯がちらついたり消えたりしません。次回のゲーム起動時から有効です。'),
+    'Controle DirectInput': ('DirectInput controller', 'Mando DirectInput', 'Manette DirectInput',
+                             'DirectInput-Controller', 'Controller DirectInput', 'Pad DirectInput',
+                             'Геймпад DirectInput', 'DirectInput コントローラー'),
+    'Só controles não reconhecidos': ('Unrecognized controllers only', 'Solo mandos no reconocidos',
+                                      'Manettes non reconnues seulement', 'Nur nicht erkannte Controller',
+                                      'Solo controller non riconosciuti', 'Tylko nierozpoznane pady',
+                                      'Только нераспознанные', '認識されないコントローラーのみ'),
+    'Todos os controles': ('All controllers', 'Todos los mandos', 'Toutes les manettes', 'Alle Controller',
+                           'Tutti i controller', 'Wszystkie pady', 'Все геймпады', 'すべてのコントローラー'),
+    'Desligado': ('Off', 'Desactivado', 'Désactivé', 'Aus', 'Disattivato', 'Wyłączone', 'Выкл.', 'オフ'),
+    'Remapear…': ('Remap…', 'Reasignar…', 'Réassigner…', 'Neu belegen…', 'Rimappa…', 'Zmień przypisanie…',
+                  'Переназначить…', '割り当て…'),
+    'Para controles que o jogo não reconhece. "Todos os controles" usa este mapeamento também nos reconhecidos '
+    '(sem vibração). Vale na próxima vez que o jogo abrir.': (
+        'For controllers the game does not recognize. "All controllers" uses this mapping for recognized ones too '
+        '(without vibration). Applies the next time the game starts.',
+        'Para mandos que el juego no reconoce. "Todos los mandos" usa esta asignación también en los reconocidos '
+        '(sin vibración). Se aplica la próxima vez que se abra el juego.',
+        'Pour les manettes que le jeu ne reconnaît pas. « Toutes les manettes » utilise cette assignation aussi '
+        "pour les autres (sans vibration). S'applique au prochain lancement du jeu.",
+        'Für Controller, die das Spiel nicht erkennt. „Alle Controller“ nutzt diese Belegung auch für erkannte '
+        '(ohne Vibration). Gilt ab dem nächsten Spielstart.',
+        'Per i controller che il gioco non riconosce. "Tutti i controller" usa questa mappatura anche per quelli '
+        'riconosciuti (senza vibrazione). Vale dal prossimo avvio del gioco.',
+        'Dla padów, których gra nie rozpoznaje. „Wszystkie pady” używa tego przypisania także dla rozpoznanych '
+        '(bez wibracji). Działa od następnego uruchomienia gry.',
+        'Для геймпадов, которые игра не распознаёт. «Все геймпады» применяет эту раскладку и к распознанным '
+        '(без вибрации). Действует со следующего запуска игры.',
+        'ゲームが認識しないコントローラー用です。「すべてのコントローラー」は認識されるものにもこの割り当てを使います '
+        '(振動なし)。次回のゲーム起動時から有効です。'),
+    'Remapear controle DirectInput': ('Remap DirectInput controller', 'Reasignar mando DirectInput',
+                                      'Réassigner la manette DirectInput', 'DirectInput-Controller neu belegen',
+                                      'Rimappa controller DirectInput', 'Przypisz pad DirectInput',
+                                      'Переназначить геймпад DirectInput', 'DirectInput コントローラーの割り当て'),
+    'Clique numa caixa e aperte o botão do controle, ou mova o stick. Esc cancela, Delete limpa. O direcional do '
+    'controle é sempre o direcional.': (
+        "Click a box and press the controller's button, or move the stick. Esc cancels, Delete clears. The "
+        "controller's d-pad is always the d-pad.",
+        'Haz clic en una casilla y pulsa el botón del mando, o mueve el stick. Esc cancela, Supr borra. La cruceta '
+        'del mando es siempre la cruceta.',
+        'Cliquez sur une case et appuyez sur le bouton de la manette, ou bougez le stick. Échap annule, Suppr '
+        'efface. La croix de la manette reste la croix.',
+        'Klicke auf ein Feld und drücke die Taste am Controller oder bewege den Stick. Esc bricht ab, Entf löscht. '
+        'Das Steuerkreuz bleibt das Steuerkreuz.',
+        'Fai clic su una casella e premi il pulsante del controller, o muovi lo stick. Esc annulla, Canc cancella. '
+        'La croce direzionale resta la croce.',
+        'Kliknij pole i naciśnij przycisk pada albo porusz gałką. Esc anuluje, Delete czyści. Krzyżak pada zawsze '
+        'jest krzyżakiem.',
+        'Нажмите на поле и нажмите кнопку геймпада или сдвиньте стик. Esc — отмена, Delete — очистить. '
+        'Крестовина геймпада всегда остаётся крестовиной.',
+        '枠をクリックしてコントローラーのボタンを押すか、スティックを動かします。Escで取り消し、Deleteで消去。'
+        '方向パッドは常に方向パッドです。'),
+    'Aperte um botão…': ('Press a button…', 'Pulsa un botón…', 'Appuyez sur un bouton…', 'Taste drücken…',
+                         'Premi un pulsante…', 'Naciśnij przycisk…', 'Нажмите кнопку…', 'ボタンを押して…'),
+    'Mova o stick…': ('Move the stick…', 'Mueve el stick…', 'Bougez le stick…', 'Stick bewegen…',
+                      'Muovi lo stick…', 'Porusz gałką…', 'Сдвиньте стик…', 'スティックを動かして…'),
+    'Botão {}': ('Button {}', 'Botón {}', 'Bouton {}', 'Taste {}', 'Pulsante {}', 'Przycisk {}', 'Кнопка {}',
+                 'ボタン {}'),
+    'Eixo {}': ('Axis {}', 'Eje {}', 'Axe {}', 'Achse {}', 'Asse {}', 'Oś {}', 'Ось {}', '軸 {}'),
+    'Sticks': ('Sticks', 'Sticks', 'Sticks', 'Sticks', 'Stick', 'Gałki', 'Стики', 'スティック'),
+    'Direcional (hat)': ('D-pad (hat)', 'Cruceta (hat)', 'Croix (hat)', 'Steuerkreuz (Hat)', 'Croce (hat)',
+                         'Krzyżak (hat)', 'Крестовина (hat)', '方向パッド (ハット)'),
+    'Sensor de movimento funcionando: agitar o controle já conserta a lanterna no jogo, sem mapear nada (menos '
+    'com "Todos os controles").': (
+        'Motion sensor working: shaking the controller already fixes the flashlight in the game, with nothing to '
+        'map (except with "All controllers").',
+        'Sensor de movimiento funcionando: agitar el mando ya arregla la linterna en el juego, sin asignar nada '
+        '(salvo con "Todos los mandos").',
+        "Capteur de mouvement actif : secouer la manette répare déjà la lampe dans le jeu, sans rien assigner "
+        "(sauf avec « Toutes les manettes »).",
+        'Bewegungssensor aktiv: Schütteln repariert die Taschenlampe im Spiel schon, ohne Belegung (außer mit '
+        '„Alle Controller“).',
+        'Sensore di movimento attivo: scuotere il controller ripara già la torcia nel gioco, senza mappare nulla '
+        '(tranne con "Tutti i controller").',
+        'Czujnik ruchu działa: potrząśnięcie padem już naprawia latarkę w grze, bez przypisywania (poza '
+        '„Wszystkie pady”).',
+        'Датчик движения работает: встряхивание геймпада уже чинит фонарик в игре, ничего назначать не нужно '
+        '(кроме режима «Все геймпады»).',
+        'モーションセンサー動作中: コントローラーを振るだけでゲーム内の懐中電灯が直ります。割り当ては不要です '
+        '(「すべてのコントローラー」以外)。'),
+    'Aperte um botão ou mexa o eixo…': ('Press a button or move the axis…', 'Pulsa un botón o mueve el eje…',
+                                        "Appuyez sur un bouton ou bougez l'axe…", 'Taste drücken oder Achse bewegen…',
+                                        "Premi un pulsante o muovi l'asse…", 'Naciśnij przycisk lub porusz oś…',
+                                        'Нажмите кнопку или сдвиньте ось…', 'ボタンを押すか軸を動かして…'),
+    'Aperte um botão ou gatilho…': ('Press a button or trigger…', 'Pulsa un botón o gatillo…',
+                                    'Appuyez sur un bouton ou une gâchette…', 'Taste oder Trigger drücken…',
+                                    'Premi un pulsante o grilletto…', 'Naciśnij przycisk lub spust…',
+                                    'Нажмите кнопку или курок…', 'ボタンかトリガーを押して…'),
+    'Stick esquerdo, horizontal': ('Left stick, horizontal', 'Stick izquierdo, horizontal',
+                                   'Stick gauche, horizontal', 'Linker Stick, horizontal',
+                                   'Stick sinistro, orizzontale', 'Lewa gałka, poziomo', 'Левый стик, по горизонтали',
+                                   '左スティック、横'),
+    'Stick esquerdo, vertical': ('Left stick, vertical', 'Stick izquierdo, vertical', 'Stick gauche, vertical',
+                                 'Linker Stick, vertikal', 'Stick sinistro, verticale', 'Lewa gałka, pionowo',
+                                 'Левый стик, по вертикали', '左スティック、縦'),
+    'Stick direito, horizontal': ('Right stick, horizontal', 'Stick derecho, horizontal', 'Stick droit, horizontal',
+                                  'Rechter Stick, horizontal', 'Stick destro, orizzontale', 'Prawa gałka, poziomo',
+                                  'Правый стик, по горизонтали', '右スティック、横'),
+    'Stick direito, vertical': ('Right stick, vertical', 'Stick derecho, vertical', 'Stick droit, vertical',
+                                'Rechter Stick, vertikal', 'Stick destro, verticale', 'Prawa gałka, pionowo',
+                                'Правый стик, по вертикали', '右スティック、縦'),
+    'Nenhum controle conectado.': ('No controller connected.', 'Ningún mando conectado.', 'Aucune manette connectée.',
+                                   'Kein Controller verbunden.', 'Nessun controller collegato.',
+                                   'Brak podłączonego pada.', 'Геймпад не подключён.',
+                                   'コントローラーが接続されていません。'),
+    'O jogo reconhece este controle: o mapeamento só vale para ele com "Todos os controles".': (
+        'The game recognizes this controller: the mapping applies to it only with "All controllers".',
+        'El juego reconoce este mando: la asignación solo se aplica con "Todos los mandos".',
+        'Le jeu reconnaît cette manette : l\'assignation ne s\'applique qu\'avec « Toutes les manettes ».',
+        'Das Spiel erkennt diesen Controller: Die Belegung gilt nur mit „Alle Controller“.',
+        'Il gioco riconosce questo controller: la mappatura vale solo con "Tutti i controller".',
+        'Gra rozpoznaje ten pad: przypisanie działa tylko z „Wszystkie pady”.',
+        'Игра распознаёт этот геймпад: раскладка действует только с «Все геймпады».',
+        'このコントローラーはゲームが認識します: 割り当ては「すべてのコントローラー」の時のみ有効です。'),
+    'eixos': ('axes', 'ejes', 'axes', 'Achsen', 'assi', 'osie', 'осей', '軸'),
+    'botões': ('buttons', 'botones', 'boutons', 'Tasten', 'pulsanti', 'przyciski', 'кнопок', 'ボタン'),
+    'Apertados agora: {}': ('Pressed now: {}', 'Pulsados ahora: {}', 'Appuyés : {}', 'Gerade gedrückt: {}',
+                            'Premuti ora: {}', 'Wciśnięte teraz: {}', 'Нажаты сейчас: {}', '押されているボタン: {}'),
     'Ícones dos botões': ('Button icons', 'Iconos de los botones', 'Icônes des boutons', 'Tastensymbole',
                           'Icone dei pulsanti', 'Ikony przycisków', 'Значки кнопок', 'ボタンアイコン'),
     'Automático': ('Automatic', 'Automático', 'Automatique', 'Automatisch', 'Automatico', 'Automatycznie',
@@ -2053,7 +2315,28 @@ class PadReader:
                         ("SDL_UpdateGamepads", None, []), ("SDL_FlushEvents", None, [c.c_uint32, c.c_uint32]),
                         ("SDL_GetGamepadButton", c.c_bool, [c.c_void_p, c.c_int]),
                         ("SDL_GetGamepadAxis", c.c_int16, [c.c_void_p, c.c_int]),
-                        ("SDL_RumbleGamepad", c.c_bool, [c.c_void_p, c.c_uint16, c.c_uint16, c.c_uint32])):
+                        ("SDL_RumbleGamepad", c.c_bool, [c.c_void_p, c.c_uint16, c.c_uint16, c.c_uint32]),
+                        # The accelerometer (shakes: ShakeDetector, as runtime_pad.c).
+                        ("SDL_GamepadHasSensor", c.c_bool, [c.c_void_p, c.c_int]),
+                        ("SDL_GamepadSensorEnabled", c.c_bool, [c.c_void_p, c.c_int]),
+                        ("SDL_SetGamepadSensorEnabled", c.c_bool, [c.c_void_p, c.c_int, c.c_bool]),
+                        ("SDL_GetGamepadSensorData", c.c_bool, [c.c_void_p, c.c_int, c.POINTER(c.c_float), c.c_int]),
+                        # Raw joysticks (JoystickReader: the DirectInput remap window).
+                        ("SDL_GetJoysticks", c.POINTER(c.c_uint32), [c.POINTER(c.c_int)]),
+                        ("SDL_IsGamepad", c.c_bool, [c.c_uint32]),
+                        ("SDL_OpenJoystick", c.c_void_p, [c.c_uint32]), ("SDL_CloseJoystick", None, [c.c_void_p]),
+                        ("SDL_JoystickConnected", c.c_bool, [c.c_void_p]),
+                        ("SDL_GetJoystickID", c.c_uint32, [c.c_void_p]),
+                        ("SDL_GetJoystickName", c.c_char_p, [c.c_void_p]),
+                        ("SDL_GetNumJoystickAxes", c.c_int, [c.c_void_p]),
+                        ("SDL_GetNumJoystickButtons", c.c_int, [c.c_void_p]),
+                        ("SDL_GetNumJoystickHats", c.c_int, [c.c_void_p]),
+                        ("SDL_GetJoystickAxis", c.c_int16, [c.c_void_p, c.c_int]),
+                        ("SDL_GetJoystickButton", c.c_bool, [c.c_void_p, c.c_int]),
+                        ("SDL_GetJoystickHat", c.c_uint8, [c.c_void_p, c.c_int]),
+                        ("SDL_GetJoystickAxisInitialState", c.c_bool,
+                         [c.c_void_p, c.c_int, c.POINTER(c.c_int16)]),
+                        ("SDL_UpdateJoysticks", None, [])):
                     function = getattr(sdl, name)
                     function.restype, function.argtypes = result, arguments
                 cls.sdl = sdl
@@ -2062,6 +2345,7 @@ class PadReader:
 
     def __init__(self):
         self.pad = None
+        self.shake, self.has_motion = ShakeDetector(1.2), False
         sdl = self.library()
         self.ready = False
         if sdl:
@@ -2094,6 +2378,11 @@ class PadReader:
             pressed.add("touchpad")
         if sdl.SDL_GetGamepadButton(pad, SDL_MISC1):
             pressed.add("shake")
+        # Shaken for real: the game counts it as the shake too (runtime_pad.c, threshold 1.2 g).
+        motion = accelerometer(sdl, pad)
+        self.has_motion = motion is not None
+        if motion is not None and self.shake.update(motion):
+            pressed.add("shake")
         axes = tuple(max(-1.0, sdl.SDL_GetGamepadAxis(pad, i) / 32767) for i in range(4))
         triggers = tuple(max(0.0, sdl.SDL_GetGamepadAxis(pad, i) / 32767) for i in (4, 5))
         name = (sdl.SDL_GetGamepadName(pad) or b"").decode("utf-8", "replace")
@@ -2110,6 +2399,225 @@ class PadReader:
                 self.sdl.SDL_CloseGamepad(self.pad)
             self.sdl.SDL_QuitSubSystem(SDL_INIT_GAMEPAD)
         self.pad, self.ready = None, False
+
+
+# DirectInput controllers (gow3_pc/src/runtime_pad.c current_joystick): read as raw joysticks, their
+# buttons and axes by number. tlou.ini: dinput (1: controllers SDL has no mapping for, force: every
+# controller, 0: off), dinput_buttons (the PS4 button of each joystick button in order, "-" for
+# none) and dinput_axes ("<left x>,<left y>,<right x>,<right y>", -1 for none).
+# The buttons, then the d-pad: a pad whose d-pad is buttons maps them; its hat is always the d-pad.
+DINPUT_ACTIONS = [action for group, rows in CONTROLS if group == "Botões" for action, _, _ in rows]
+DINPUT_DPAD = [action for group, rows in CONTROLS if group == "Direcional" for action, _, _ in rows]
+DINPUT_ACTIONS += DINPUT_DPAD
+DINPUT_DEFAULT_BUTTONS = ("square,cross,circle,triangle,l1,r1,l2,r2,touchpad_right,options,l3,r3,-,"
+                          "touchpad_left")
+# dinput_axes in order: the sticks, L2 and R2 (-1: the triggers are buttons), then the shake axis
+# (moved back and forth fast it shakes the controller; -1: none).
+DINPUT_STICKS = ("Stick esquerdo, horizontal", "Stick esquerdo, vertical", "Stick direito, horizontal",
+                 "Stick direito, vertical")
+DINPUT_DEFAULT_AXES = [0, 1, 2, 3, -1, -1, -1]
+DINPUT_AXIS_ACTIONS = {"l2": 4, "r2": 5, "shake": 6}   # buttons that may be an axis instead
+
+
+def dinput_buttons(text):
+    """{action: joystick button} of a dinput_buttons value (the default without one)."""
+    names = [n.strip().lower() for n in (text or DINPUT_DEFAULT_BUTTONS).split(",")]
+    found = {}
+    for index, name in enumerate(names):
+        name = "touchpad_left" if name == "touchpad" else name
+        if name in DINPUT_ACTIONS and name not in found:
+            found[name] = index
+    return found
+
+
+def dinput_buttons_text(buttons):
+    """The dinput_buttons value of {action: joystick button}."""
+    names = ["-"] * (max(buttons.values(), default=-1) + 1)
+    for action, index in buttons.items():
+        names[index] = action
+    return ",".join(names) or "-"
+
+
+def dinput_axes(text):
+    """The seven axes of a dinput_axes value (four sticks, two triggers, the shake axis)."""
+    try:
+        axes = [int(v) for v in text.split(",")] if text else []
+    except ValueError:
+        axes = []
+    if len(axes) in (4, 6):
+        axes += [-1] * (7 - len(axes))
+    return axes if len(axes) == 7 else list(DINPUT_DEFAULT_AXES)
+
+
+class ShakeDetector:
+    """runtime_pad.c shake_detect: how far a value (a number, or the accelerometer's vector in g)
+    moved, decaying over 150 ms, and how many strong moves in a row (over 300 ms); past
+    `threshold` with 2.5 of them the shake holds 0.4 s more."""
+
+    def __init__(self, threshold):
+        self.threshold, self.last, self.activity, self.swings, self.time, self.until = \
+            threshold, None, 0.0, 0.0, 0.0, 0.0
+
+    def update(self, value):
+        now = time.monotonic()
+        value = tuple(value) if isinstance(value, (tuple, list)) else (value,)
+        if self.last is not None:
+            dt = now - self.time
+            moved = math.sqrt(sum((a - b) ** 2 for a, b in zip(value, self.last)))
+            self.activity = self.activity * math.exp(-dt / 0.15) + moved
+            self.swings = self.swings * math.exp(-dt / 0.3) + (1.0 if moved > 0.2 * self.threshold else 0.0)
+        self.last, self.time = value, now
+        if self.activity > self.threshold and self.swings >= 2.5:
+            self.until = now + 0.4
+        return now < self.until
+
+
+SDL_SENSOR_ACCEL, SDL_STANDARD_GRAVITY = 1, 9.80665
+
+
+def accelerometer(sdl, pad):
+    """The gamepad's accelerometer in g after turning it on, or None without one."""
+    if not sdl.SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL):
+        return None
+    if not sdl.SDL_GamepadSensorEnabled(pad, SDL_SENSOR_ACCEL):
+        sdl.SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_ACCEL, True)
+    data = (ctypes.c_float * 3)()
+    if not sdl.SDL_GetGamepadSensorData(pad, SDL_SENSOR_ACCEL, data, 3):
+        return None
+    return tuple(v / SDL_STANDARD_GRAVITY for v in data)
+
+
+class JoystickReader:
+    """A controller read as a raw joystick. pick: "unmapped" the first one SDL has no gamepad mapping
+    for (the game's dinput=1), "any" the first one (dinput=force), "prefer_unmapped" the first
+    unmapped one, else the first one (the remap window). ready is False without SDL3.dll."""
+
+    def __init__(self, pick="prefer_unmapped"):
+        self.stick, self.pick = None, pick
+        # A controller SDL recognizes also opens as a gamepad: its accelerometer in g (None without).
+        self.gamepad, self.motion = None, None
+        sdl = PadReader.library()
+        self.ready = False
+        if sdl:
+            sdl.SDL_SetHint(b"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", b"1")
+            self.ready = bool(sdl.SDL_InitSubSystem(SDL_INIT_GAMEPAD))
+
+    def state(self):
+        """(name, mapped by SDL, [axes in -1..1], {pressed buttons}, hat), or None without a controller."""
+        if not self.ready:
+            return None
+        sdl = PadReader.sdl
+        sdl.SDL_UpdateJoysticks()
+        sdl.SDL_FlushEvents(0, 0xFFFF)
+        if self.stick and not sdl.SDL_JoystickConnected(self.stick):
+            sdl.SDL_CloseJoystick(self.stick)
+            self.stick = None
+            if self.gamepad:
+                sdl.SDL_CloseGamepad(self.gamepad)
+                self.gamepad = None
+        self.motion = None
+        if not self.stick:
+            count = ctypes.c_int(0)
+            ids = sdl.SDL_GetJoysticks(ctypes.byref(count))
+            if ids:
+                found = [ids[i] for i in range(count.value)]
+                sdl.SDL_free(ids)
+                unmapped = [i for i in found if not sdl.SDL_IsGamepad(i)]
+                choice = {"unmapped": unmapped, "any": found}.get(self.pick, unmapped or found)
+                if choice:
+                    self.stick = sdl.SDL_OpenJoystick(choice[0])
+            if not self.stick:
+                return None
+        stick = self.stick
+        axes = [max(-1.0, sdl.SDL_GetJoystickAxis(stick, i) / 32767) for i in range(sdl.SDL_GetNumJoystickAxes(stick))]
+        pressed = {i for i in range(sdl.SDL_GetNumJoystickButtons(stick)) if sdl.SDL_GetJoystickButton(stick, i)}
+        hat = sdl.SDL_GetJoystickHat(stick, 0) if sdl.SDL_GetNumJoystickHats(stick) > 0 else 0
+        name = (sdl.SDL_GetJoystickName(stick) or b"").decode("utf-8", "replace")
+        mapped = bool(sdl.SDL_IsGamepad(sdl.SDL_GetJoystickID(stick)))
+        if mapped and not self.gamepad:
+            self.gamepad = sdl.SDL_OpenGamepad(sdl.SDL_GetJoystickID(stick))
+        if self.gamepad:
+            self.motion = accelerometer(sdl, self.gamepad)
+        return name, mapped, axes, pressed, hat
+
+    def close(self):
+        if self.ready:
+            if self.gamepad:
+                PadReader.sdl.SDL_CloseGamepad(self.gamepad)
+            if self.stick:
+                PadReader.sdl.SDL_CloseJoystick(self.stick)
+            PadReader.sdl.SDL_QuitSubSystem(SDL_INIT_GAMEPAD)
+        self.stick, self.gamepad, self.ready = None, None, False
+
+
+class GameReader:
+    """The controller as the game reads it (gow3_pc/src/runtime_pad.c), for the Controller tab's
+    drawing; the same state() as PadReader. dinput "1": an SDL gamepad, else a controller SDL has no
+    mapping for through the DirectInput map; "force": the first controller through the map; "0": SDL
+    gamepads only. The map (dinput_buttons, dinput_axes) is read again every half second: the remap
+    window changes it."""
+
+    def __init__(self, mode):
+        self.mode = mode
+        self.pad = PadReader() if mode != "force" else None
+        self.stick = JoystickReader("any" if mode == "force" else "unmapped") if mode != "0" else None
+        self.ready = bool((self.pad and self.pad.ready) or (self.stick and self.stick.ready))
+        self.loaded = 0.0
+        self.buttons, self.axes = {}, list(DINPUT_DEFAULT_AXES)
+        self.shake = ShakeDetector(2.5)
+
+    def mapped(self):
+        """The DirectInput controller's state through the map, or None without one."""
+        read = self.stick.state() if self.stick and self.stick.ready else None
+        if read is None:
+            return None
+        if time.monotonic() - self.loaded > 0.5:
+            ini = read_ini()
+            self.buttons = dinput_buttons(ini.get("dinput_buttons", ""))
+            self.axes = dinput_axes(ini.get("dinput_axes", ""))
+            self.loaded = time.monotonic()
+        name, _, values, held, hat = read
+        pressed = {action for action, index in self.buttons.items() if index in held}
+        pressed |= {name for bit, name in ((1, "up"), (2, "right"), (4, "down"), (8, "left")) if hat & bit}
+
+        def value(index):
+            return values[index] if 0 <= index < len(values) else 0.0
+
+        def trigger(index):
+            if not 0 <= index < len(values):
+                return 0.0
+            rest = ctypes.c_int16(0)
+            if PadReader.sdl.SDL_GetJoystickAxisInitialState(self.stick.stick, index, ctypes.byref(rest)) \
+                    and rest.value < -16000:
+                return (values[index] + 1) / 2   # rests at -1
+            return max(0.0, values[index])
+
+        sticks = tuple(value(i) for i in self.axes[:4])
+        triggers = tuple(1.0 if button in pressed else trigger(i) for button, i in zip(("l2", "r2"), self.axes[4:6]))
+        if 0 <= self.axes[6] < len(values) and self.shake.update(values[self.axes[6]]):
+            pressed.add("shake")
+        return name, pressed, sticks, triggers
+
+    def state(self):
+        self.through_map = False
+        if self.pad:
+            read = self.pad.state()
+            if read:
+                return read
+        read = self.mapped()
+        self.through_map = read is not None
+        return read
+
+    def rumble(self, seconds):
+        if self.pad:   # a controller read through the map has no vibration in the game
+            self.pad.rumble(seconds)
+
+    def close(self):
+        for reader in (self.pad, self.stick):
+            if reader:
+                reader.close()
+        self.pad = self.stick = None
+        self.ready = False
 
 
 def rounded(canvas, x0, y0, x1, y1, r, **options):
@@ -2374,8 +2882,10 @@ class Launcher(tk.Tk):
         self.display = self.choice(panel, row, self.t("display"), list(self.display_labels),
                                    key_for(self.display_labels, ini.get("display_mode"), self.t("borderless")))
         res = ini.get("output_res", "1920x1080")
-        self.resolution = self.choice(panel, row + 1, self.t("resolution"),
-                                      RESOLUTIONS + ([res] if res not in RESOLUTIONS else []), res)
+        self.resolution_labels = {resolution_label(size): size
+                                  for size in RESOLUTIONS + ([res] if res not in RESOLUTIONS else [])}
+        self.resolution = self.choice(panel, row + 1, self.t("resolution"), list(self.resolution_labels),
+                                      resolution_label(res))
         # The game's engine is 30 fps frame-based (TLOU Remastered PS4): at 60 presented frames
         # every animation runs at twice speed. POSIX defaults to the matching 30; Windows keeps
         # its 60 (players pick 30 in the menu; README, Frame pacing).
@@ -2539,7 +3049,8 @@ class Launcher(tk.Tk):
         self.save()
 
     def save(self):
-        write_ini({"display_mode": self.display_labels[self.display.get()], "output_res": self.resolution.get(),
+        write_ini({"display_mode": self.display_labels[self.display.get()],
+                   "output_res": self.resolution_labels[self.resolution.get()],
                    "fps_limit": self.fps.get(), "upscaler": self.upscaler_labels[self.upscaler.get()],
                    "preset": self.preset_labels[self.preset.get()], "vsync": int(self.vsync.get()),
                    "show_fps": int(self.show_fps.get()),
@@ -2796,7 +3307,7 @@ class Launcher(tk.Tk):
             return
         self.controls_window = window = tk.Toplevel(self, bg=BG)
         window.title(self.t("controls"))
-        height = min(800, self.winfo_screenheight() - 80)   # the Controller tab's cards fit at 800
+        height = min(940, self.winfo_screenheight() - 80)   # the Controller tab's cards fit at 940
         window.geometry(f"780x{height}+{self.winfo_rootx() + 40}+{max(0, min(self.winfo_rooty() + 20, self.winfo_screenheight() - height - 60))}")
         tabs = ttk.Notebook(window)
         tabs.pack(fill="both", expand=True, padx=14, pady=14)
@@ -2853,8 +3364,12 @@ class Launcher(tk.Tk):
                  font=("Segoe UI", 9)).pack(side="left", padx=(14, 0))
         tester.config(state="normal" if vibration.get() else "disabled")
 
-        aim_card = tk.Frame(outer, bg=BG, highlightthickness=1, highlightbackground="#262626")
-        aim_card.pack(fill="x", padx=10, pady=(10, 0))
+        # Aim assist and the flashlight side by side: the tab fits in the window.
+        pair = tk.Frame(outer, bg=PANEL)
+        pair.pack(fill="x", padx=10, pady=(10, 0))
+        pair.columnconfigure((0, 1), weight=1, uniform="pair")
+        aim_card = tk.Frame(pair, bg=BG, highlightthickness=1, highlightbackground="#262626")
+        aim_card.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         tk.Label(aim_card, text=self.debug_text("Mira").upper(), bg=BG, fg=ACCENT,
                  font=("Segoe UI Semibold", 9)).pack(anchor="w", padx=14, pady=(10, 2))
         tk.Checkbutton(aim_card, text=self.debug_text("Assistência de mira"), variable=self.aim_assist,
@@ -2863,8 +3378,58 @@ class Launcher(tk.Tk):
                        takefocus=0).pack(anchor="w", padx=12)
         tk.Label(aim_card, text=self.debug_text("Desligada: o jogo não ajuda a mira a seguir os inimigos. "
                                                 "Vale na próxima vez que o jogo abrir."),
-                 bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=560, justify="left").pack(anchor="w", padx=14,
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=330, justify="left").pack(anchor="w", padx=14,
                                                                                               pady=(0, 10))
+
+        # Flashlight (flashlight_fix in tlou.ini; tools/probe_tlou.py applies the "Flashlight Does Not
+        # Turn Off" cheat at start when on, the default).
+        flashlight = tk.BooleanVar(value=read_ini().get("flashlight_fix", "1") != "0")
+
+        def save_flashlight():
+            write_ini({"flashlight_fix": int(flashlight.get())})
+
+        light_card = tk.Frame(pair, bg=BG, highlightthickness=1, highlightbackground="#262626")
+        light_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        tk.Label(light_card, text=self.debug_text("Lanterna").upper(), bg=BG, fg=ACCENT,
+                 font=("Segoe UI Semibold", 9)).pack(anchor="w", padx=14, pady=(10, 2))
+        tk.Checkbutton(light_card, text=self.debug_text("Lanterna nunca falha"), variable=flashlight,
+                       command=save_flashlight, bg=BG, fg=TEXT, selectcolor=PANEL, activebackground=BG,
+                       activeforeground=TEXT, font=("Segoe UI", 10), bd=0, highlightthickness=0,
+                       takefocus=0).pack(anchor="w", padx=12)
+        tk.Label(light_card, text=self.debug_text("Ligada: a lanterna não pisca nem apaga, sem precisar agitar o "
+                                                  "controle. Vale na próxima vez que o jogo abrir."),
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=330, justify="left").pack(anchor="w", padx=14,
+                                                                                              pady=(0, 10))
+
+        # DirectInput controllers (dinput in tlou.ini; the buttons and sticks in open_dinput).
+        dinput_card = tk.Frame(outer, bg=BG, highlightthickness=1, highlightbackground="#262626")
+        dinput_card.pack(fill="x", padx=10, pady=(10, 0))
+        tk.Label(dinput_card, text=self.debug_text("Controle DirectInput").upper(), bg=BG, fg=ACCENT,
+                 font=("Segoe UI Semibold", 9)).pack(anchor="w", padx=14, pady=(10, 2))
+        dinput_row = tk.Frame(dinput_card, bg=BG)
+        dinput_row.pack(anchor="w", fill="x", padx=12)
+        mode = read_ini().get("dinput", "1").strip().lower()
+        dinput = tk.StringVar(value=mode if mode in ("1", "force", "0") else "1")
+
+        def save_dinput():
+            write_ini({"dinput": dinput.get()})
+            if state["reader"]:   # the drawing reads the controller as the game will
+                state["reader"].close()
+                state["reader"] = GameReader(dinput.get())
+
+        for value, text in (("1", "Só controles não reconhecidos"), ("force", "Todos os controles"),
+                            ("0", "Desligado")):
+            tk.Radiobutton(dinput_row, text=self.debug_text(text), variable=dinput, value=value, command=save_dinput,
+                           bg=BG, fg=TEXT, selectcolor=PANEL, activebackground=BG, activeforeground=TEXT,
+                           font=("Segoe UI", 10), bd=0, highlightthickness=0, takefocus=0).pack(side="left", padx=(0, 12))
+        tk.Button(dinput_row, text=self.debug_text("Remapear…"), command=lambda: self.open_dinput(window), bg=PANEL,
+                  fg=TEXT, bd=0, cursor="hand2", activebackground="#222", activeforeground=ACCENT, font=("Segoe UI", 9),
+                  padx=12, pady=3, takefocus=0).pack(side="right")
+        tk.Label(dinput_card, text=self.debug_text("Para controles que o jogo não reconhece. \"Todos os controles\" usa "
+                                                   "este mapeamento também nos reconhecidos (sem vibração). Vale na "
+                                                   "próxima vez que o jogo abrir."),
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=560, justify="left").pack(anchor="w", padx=14,
+                                                                                              pady=(2, 10))
 
         # Button icons (prompts in tlou.ini, gow3_settings.cpp; the in-game menu has the same choice):
         # auto follows the device used last, the others are fixed.
@@ -2981,6 +3546,8 @@ class Launcher(tk.Tk):
                     text = self.debug_text("Leitura do controle indisponível (biblioteca SDL3 não encontrada).")
             elif pad:
                 text = self.debug_text("Controle conectado: {}").format(pad[0] or "?")
+                if getattr(state["reader"], "through_map", False):
+                    text += " (DirectInput)"
             else:
                 text = self.debug_text("Nenhum controle conectado.")
             if status.cget("text") != text:
@@ -3000,7 +3567,7 @@ class Launcher(tk.Tk):
             if shown():
                 load_bindings()
                 if state["reader"] is None:
-                    state["reader"] = PadReader()
+                    state["reader"] = GameReader(dinput.get())
                 canvas.after_idle(canvas.focus_set)
                 if state["job"] is None:
                     tick()
@@ -3016,11 +3583,234 @@ class Launcher(tk.Tk):
             save()
             self.aim_assist.set(True)
             self.save_aim_assist()
+            flashlight.set(True)
+            save_flashlight()
+            dinput.set("1")
+            save_dinput()
             icons.set("auto")
             write_ini({"prompts": "auto"})
 
         self.reset_link(outer, reset)
         window.pad_view, window.pad_state = view, state   # (tests)
+
+    def open_dinput(self, parent):
+        """The DirectInput controller's buttons and sticks (dinput_buttons, dinput_axes in tlou.ini): click
+        a box, then press the controller's button or move its stick (Esc cancels, Delete clears)."""
+        if getattr(self, "dinput_window", None) is not None and self.dinput_window.winfo_exists():
+            self.dinput_window.lift()
+            return
+        self.dinput_window = window = tk.Toplevel(parent, bg=PANEL)
+        window.title(self.debug_text("Remapear controle DirectInput"))
+        window.geometry(f"560x{min(820, self.winfo_screenheight() - 80)}+{parent.winfo_rootx() + 60}+"
+                        f"{max(0, parent.winfo_rooty() + 20)}")
+        ini = read_ini()
+        buttons = dinput_buttons(ini.get("dinput_buttons", ""))
+        axes = dinput_axes(ini.get("dinput_axes", ""))
+        reader = JoystickReader()
+        state = {"capture": None, "base": None, "job": None}
+        labels = {action: text for _, rows in CONTROLS for action, text, _ in rows}
+
+        tk.Label(window, text=self.debug_text("Clique numa caixa e aperte o botão do controle, ou mova o stick. "
+                                              "Esc cancela, Delete limpa. O direcional do controle é sempre o "
+                                              "direcional."),
+                 bg=PANEL, fg=MUTED, font=("Segoe UI", 9), wraplength=500, justify="left").pack(anchor="w", padx=14,
+                                                                                                pady=(10, 4))
+        status = tk.Label(window, bg=PANEL, fg=TEXT, font=("Segoe UI", 9), wraplength=500, justify="left")
+        status.pack(anchor="w", padx=14)
+        live = tk.Label(window, bg=PANEL, fg=MUTED, font=("Consolas", 9), justify="left")
+        live.pack(anchor="w", padx=14, pady=(2, 6))
+        body = tk.Frame(window, bg=PANEL)
+        body.pack(fill="both", expand=True, padx=14)
+        boxes, names = {}, {}
+
+        # L2 and R2 take a button or a trigger axis (dinput_axes 4 and 5): many pads have analog triggers.
+        # The shake takes a button or an axis that moves when the controller is shaken (dinput_axes 6).
+        trigger_axes = DINPUT_AXIS_ACTIONS
+        shake_seen = ShakeDetector(2.5)
+        motion_seen = ShakeDetector(1.2)
+
+        def box_text(key):
+            if state["capture"] == key:
+                if key[0] == "axis":
+                    return self.debug_text("Mova o stick…")
+                if key[1] == "shake":
+                    return self.debug_text("Aperte um botão ou mexa o eixo…")
+                return self.debug_text("Aperte um botão ou gatilho…" if key[1] in trigger_axes else
+                                       "Aperte um botão…")
+            if key[0] == "button":
+                if key[1] in trigger_axes and axes[trigger_axes[key[1]]] >= 0:
+                    return self.debug_text("Eixo {}").format(axes[trigger_axes[key[1]]])
+                index = buttons.get(key[1])
+                if index is None and key[1] in DINPUT_DPAD:
+                    return self.debug_text("Direcional (hat)")
+                return "—" if index is None else self.debug_text("Botão {}").format(index)
+            index = axes[key[1]]
+            return "—" if index < 0 else self.debug_text("Eixo {}").format(index)
+
+        def show():
+            for key, box in boxes.items():
+                box.config(text=box_text(key), fg=ACCENT if state["capture"] == key else TEXT)
+
+        def save():
+            write_ini({"dinput_buttons": dinput_buttons_text(buttons), "dinput_axes": ",".join(map(str, axes))})
+            show()
+
+        def start(key):
+            state["capture"] = None if state["capture"] == key else key
+            state["base"] = None   # taken at the next read
+            show()
+            window.focus_set()
+
+        def row(parent_frame, key, text):
+            line = tk.Frame(parent_frame, bg=PANEL)
+            line.pack(fill="x", pady=1)
+            names[key] = tk.Label(line, text=self.debug_text(text), width=30, anchor="w", bg=PANEL, fg=TEXT,
+                                  font=("Segoe UI", 10))
+            names[key].pack(side="left")
+            boxes[key] = tk.Button(line, width=18, command=lambda: start(key), bg=BG, fg=TEXT, bd=0, cursor="hand2",
+                                   activebackground="#222", activeforeground=ACCENT, font=("Segoe UI", 9), takefocus=0)
+            boxes[key].pack(side="left")
+
+        self.group(body, "Botões")
+        for action in DINPUT_ACTIONS:
+            if action not in DINPUT_DPAD:
+                row(body, ("button", action), labels[action])
+        self.group(body, "Direcional")
+        for action in DINPUT_DPAD:
+            row(body, ("button", action), labels[action])
+        self.group(body, "Sticks")
+        for i, text in enumerate(DINPUT_STICKS[:4]):
+            row(body, ("axis", i), text)
+
+        def key(event):
+            capture = state["capture"]
+            if not capture:
+                return
+            if event.keysym == "Escape":
+                state["capture"] = None
+                show()
+            elif event.keysym == "Delete":
+                if capture[0] == "button":
+                    buttons.pop(capture[1], None)
+                    if capture[1] in trigger_axes:
+                        axes[trigger_axes[capture[1]]] = -1
+                else:
+                    axes[capture[1]] = -1
+                state["capture"] = None
+                save()
+
+        window.bind("<Key>", key)
+
+        def tick():
+            state["job"] = None
+            if not window.winfo_exists():
+                return
+            read = reader.state() if reader.ready else None
+            if not reader.ready:
+                status.config(text=self.debug_text("Leitura do controle indisponível (SDL3.dll não encontrado)."))
+            elif read is None:
+                status.config(text=self.debug_text("Nenhum controle conectado."))
+                live.config(text="")
+            else:
+                name, mapped, values, pressed, hat = read
+                # A recognized controller's accelerometer: shaken, the game already counts the shake
+                # (runtime_pad.c), so there is nothing to map. Said only once a shake was seen: some
+                # clones report a sensor that never moves.
+                motion_shaking = reader.motion is not None and motion_seen.update(reader.motion)
+                if motion_shaking:
+                    state["motion_ok"] = True
+                    if state["capture"] == ("button", "shake"):
+                        state["capture"] = None
+                        show()
+                note = self.debug_text("O jogo reconhece este controle: o mapeamento só vale para ele com \"Todos "
+                                       "os controles\".") if mapped else ""
+                if state.get("motion_ok"):
+                    note += "\n" + self.debug_text("Sensor de movimento funcionando: agitar o controle já conserta a "
+                                                   "lanterna no jogo, sem mapear nada (menos com \"Todos os "
+                                                   "controles\").")
+                status.config(text=f"{name}  ({len(values)} {self.debug_text('eixos')}, "
+                                   f"{reader_buttons(read)} {self.debug_text('botões')})\n{note}".strip())
+                live.config(text=self.debug_text("Apertados agora: {}").format(
+                    " ".join(map(str, sorted(pressed))) or "—") + "\n" +
+                    "  ".join(f"{i}:{v:+.2f}" for i, v in enumerate(values)))
+                hat_actions = {a for bit, a in ((1, "up"), (2, "right"), (4, "down"), (8, "left")) if hat & bit}
+                for action in DINPUT_ACTIONS:
+                    index = buttons.get(action)
+                    lit = (index is not None and index in pressed) or action in hat_actions
+                    if action == "shake" and motion_shaking:
+                        lit = True
+                    if action in trigger_axes:
+                        axis_index = axes[trigger_axes[action]]
+                        if not 0 <= axis_index < len(values):
+                            pass
+                        elif action == "shake":   # lit while the axis swings as the game counts a shake
+                            lit = shake_seen.update(values[axis_index]) or lit
+                        else:   # a trigger may rest at -1: it lights up past the middle
+                            lit = lit or values[axis_index] > 0.2
+                    names[("button", action)].config(fg=ACCENT if lit else TEXT)
+                for i, index in enumerate(axes[:4]):
+                    moved = 0 <= index < len(values) and abs(values[index]) > 0.5
+                    names[("axis", i)].config(fg=ACCENT if moved else TEXT)
+                capture = state["capture"]
+                if capture:
+                    if state["base"] is None:
+                        state["base"] = (set(pressed), list(values))
+                        state["hat"] = hat
+                    held, rest = state["base"]
+                    if capture[0] == "button" and capture[1] in DINPUT_DPAD and hat and hat != state["hat"]:
+                        # The hat: the d-pad direction comes from it again (no button).
+                        buttons.pop(capture[1], None)
+                        state["capture"] = None
+                        save()
+                        capture = None
+                    state["hat"] = hat
+                if capture:
+                    if capture[0] == "button":
+                        state["base"] = (held & pressed, rest)   # buttons held at the click count once released
+                        fresh = sorted(pressed - held)
+                        moves = [(abs(v - rest[i]), i) for i, v in enumerate(values) if i < len(rest)]
+                        if fresh:
+                            for action in [a for a, i in buttons.items() if i == fresh[0]]:
+                                del buttons[action]
+                            buttons[capture[1]] = fresh[0]
+                            if capture[1] in trigger_axes:
+                                axes[trigger_axes[capture[1]]] = -1
+                            state["capture"] = None
+                            save()
+                        elif capture[1] in trigger_axes and moves and max(moves)[0] > 0.6:
+                            # An analog trigger: its axis, and no button.
+                            axes[trigger_axes[capture[1]]] = max(moves)[1]
+                            buttons.pop(capture[1], None)
+                            state["capture"] = None
+                            save()
+                    else:
+                        moves = [(abs(v - rest[i]), i) for i, v in enumerate(values) if i < len(rest)]
+                        if moves and max(moves)[0] > 0.6:
+                            axes[capture[1]] = max(moves)[1]
+                            state["capture"] = None
+                            save()
+            state["job"] = window.after(30, tick)
+
+        def reader_buttons(read):
+            return PadReader.sdl.SDL_GetNumJoystickButtons(reader.stick) if reader.stick else len(read[3])
+
+        def reset():
+            buttons.clear()
+            buttons.update(dinput_buttons(""))
+            axes[:] = DINPUT_DEFAULT_AXES
+            state["capture"] = None
+            save()
+
+        def closed(event):
+            if event.widget is window:
+                if state["job"]:
+                    window.after_cancel(state["job"])
+                reader.close()
+
+        window.bind("<Destroy>", closed, add="+")
+        self.reset_link(window, reset)
+        show()
+        tick()
 
     def keys_tab(self, window, tabs):
         """Two keys or mouse buttons per action: click a box, then press it (Esc cancels, Delete clears)."""
@@ -3153,21 +3943,23 @@ class Launcher(tk.Tk):
         outer, body = self.scroll_area(tabs, self.debug_text("Mouse"), self.debug_text("Vale na próxima vez que o jogo abrir."))
         ini = read_ini()
 
-        def percent(key):
+        def percent(key, default=1.0):
             try:
-                return round(float(ini.get(key, "1")) * 100)
+                return round(float(ini.get(key, str(default))) * 100)
             except ValueError:
-                return 100
+                return round(default * 100)
 
         enabled = tk.BooleanVar(value=ini.get("mouse", "1") != "0")
         invert = tk.BooleanVar(value=ini.get("mouse_invert", "0") == "1")
         invert_x = tk.BooleanVar(value=ini.get("mouse_invert_x", "0") == "1")
         sens, aim = tk.IntVar(value=percent("mouse_sens")), tk.IntVar(value=percent("mouse_aim_sens"))
+        scope = tk.IntVar(value=percent("mouse_scope_sens"))
         pending = []
 
         def save():
             write_ini({"mouse": int(enabled.get()), "mouse_sens": f"{sens.get() / 100:.2f}",
-                       "mouse_aim_sens": f"{aim.get() / 100:.2f}", "mouse_invert": int(invert.get()),
+                       "mouse_aim_sens": f"{aim.get() / 100:.2f}", "mouse_scope_sens": f"{scope.get() / 100:.2f}",
+                       "mouse_invert": int(invert.get()),
                        "mouse_invert_x": int(invert_x.get())})
 
         def save_later(_=None):   # a slider writes once it rests
@@ -3177,11 +3969,12 @@ class Launcher(tk.Tk):
 
         tk.Frame(body, bg=PANEL, height=6).pack()
         self.option(body, "Usar o mouse", enabled, save)
-        for text, variable, top in (("Sensibilidade do mouse", sens, 500), ("Sensibilidade ao mirar", aim, 1000)):
+        for text, variable, bottom, top in (("Sensibilidade do mouse", sens, 10, 500), ("Sensibilidade ao mirar", aim, 10, 500),
+                                            ("Sensibilidade com luneta", scope, 10, 200)):
             self.group(body, text)
             row = tk.Frame(body, bg=PANEL)
             row.pack(anchor="w")
-            tk.Scale(row, from_=25, to=top, resolution=5, orient="horizontal", length=420, variable=variable,
+            tk.Scale(row, from_=bottom, to=top, resolution=5, orient="horizontal", length=420, variable=variable,
                      showvalue=False, command=save_later, bg=PANEL, fg=TEXT, troughcolor=BG, activebackground=ACCENT,
                      highlightthickness=0, bd=0).pack(side="left")
             tk.Label(row, textvariable=variable, width=5, anchor="e", bg=PANEL, fg=TEXT, font=("Segoe UI", 10)).pack(side="left")
@@ -3201,6 +3994,7 @@ class Launcher(tk.Tk):
             invert_x.set(False)
             sens.set(100)
             aim.set(100)
+            scope.set(100)
             save()
 
         self.reset_link(outer, reset)

@@ -1631,6 +1631,7 @@ void Rasterizer::NotePendingGpuWrite(VAddr address, u64 size) {
         uncommitted_indices.push_back(static_cast<u32>(pending_writes.size()));
     }
     pending_writes.push_back({address, end, position});
+    pending_writes_max = std::max(pending_writes_max, pending_writes.size());
     pending_min = std::min(pending_min, address);
     pending_max = std::max(pending_max, end);
     FilterPendingRange(address, end);
@@ -1702,6 +1703,21 @@ void Rasterizer::WaitPendingWrites(const std::vector<PendingWrite>& writes, VAdd
     }
 }
 
+void Rasterizer::TrimPendingWrites() {
+    std::erase_if(pending_writes, [&](const PendingWrite& write) {
+        return draw_pipe->Reached(write.position);
+    });
+    pending_hint = 0;
+    pending_min = ~VAddr{0};
+    pending_max = 0;
+    pending_filter.fill(0);
+    for (const auto& write : pending_writes) {
+        pending_min = std::min(pending_min, write.begin);
+        pending_max = std::max(pending_max, write.end);
+        FilterPendingRange(write.begin, write.end);
+    }
+}
+
 bool Rasterizer::PendingWriteOverlaps(VAddr address, u64 size) {
     if (pending_writes.empty() || address >= pending_max || address + size <= pending_min) {
         return false;
@@ -1709,17 +1725,7 @@ bool Rasterizer::PendingWriteOverlaps(VAddr address, u64 size) {
     // Now and then drop entries whose writes the recording thread has done: the bounds shrink.
     // (Not while PostDraw notes a packet: uncommitted_indices point into the vector.)
     if ((++pending_checks & 63) == 0 && uncommitted_indices.empty()) {
-        std::erase_if(pending_writes, [&](const PendingWrite& write) {
-            return draw_pipe->Reached(write.position);
-        });
-        pending_min = ~VAddr{0};
-        pending_max = 0;
-        pending_filter.fill(0);
-        for (const auto& write : pending_writes) {
-            pending_min = std::min(pending_min, write.begin);
-            pending_max = std::max(pending_max, write.end);
-            FilterPendingRange(write.begin, write.end);
-        }
+        TrimPendingWrites();
     }
     const VAddr end = address + size;
     // gow3 26 Oct 2026: no pending write near the range, no walk (the walk was ~6% of the GPU
@@ -3633,8 +3639,11 @@ void Rasterizer::OnSubmit() {
         std::printf("Sizes: buffers: %s\n", buffer_cache.DebugSizes().c_str());
         std::printf("Sizes: pipelines: %s; scheduler: %s\n", pipeline_cache.DebugSizes().c_str(),
                     scheduler.DebugSizes().c_str());
-        std::printf("Sizes: rasterizer: %zu SRT plans, %zu keep-alive entries, %zu small GPU writes\n",
-                    srt_plans.size(), pipe_keepalive.size(), small_gpu_writes.size());
+        std::printf("Sizes: rasterizer: %zu SRT plans, %zu keep-alive entries, %zu small GPU writes, "
+                    "%zu pending GPU writes (max %zu), %zu pending copy writes\n",
+                    srt_plans.size(), pipe_keepalive.size(), small_gpu_writes.size(),
+                    pending_writes.size(), pending_writes_max, pending_copy_writes.size());
+        pending_writes_max = pending_writes.size();
         std::fflush(stdout);
     }
 }

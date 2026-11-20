@@ -11,6 +11,7 @@
 #ifndef GOW3_RWLOCK_RP_H
 #define GOW3_RWLOCK_RP_H
 #include <errno.h>
+#include <stdlib.h>
 #include <pthread.h>
 
 /* gow3 15 Nov 2026: the lock state is one atomic word, so a reader or writer that does not wait
@@ -30,7 +31,17 @@ typedef struct {
 #define RP_WRITER 0x80000000u
 #define RP_LOCK_INITIALIZER {0, 0, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER}
 
-static inline int rp_try_read_lock(RpLock *l) {
+/* GOW3_FAST_REGION_LOCK=0 (launcher debug menu): every lock and unlock also takes the mutex, the
+ * cost of the lock before 15 Nov 2026 (A/B). */
+static inline int rp_slow(void) {
+    static int slow = -1;
+    if (slow < 0) {
+        const char *env = getenv("GOW3_FAST_REGION_LOCK");
+        slow = env && env[0] == '0';
+    }
+    return slow;
+}
+static inline int rp_try_read_lock_fast(RpLock *l) {
     unsigned s = __atomic_load_n(&l->state, __ATOMIC_RELAXED);
     while (!(s & RP_WRITER)) {
         if (__atomic_compare_exchange_n(&l->state, &s, s + 1, 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
@@ -38,13 +49,27 @@ static inline int rp_try_read_lock(RpLock *l) {
     }
     return EBUSY;
 }
-static inline int rp_try_write_lock(RpLock *l) {
+static inline int rp_try_write_lock_fast(RpLock *l) {
     unsigned s = 0;
     return __atomic_compare_exchange_n(&l->state, &s, RP_WRITER, 0, __ATOMIC_ACQUIRE,
                                        __ATOMIC_RELAXED) ? 0 : EBUSY;
 }
+static inline int rp_try_read_lock(RpLock *l) {
+    if (!rp_slow()) return rp_try_read_lock_fast(l);
+    pthread_mutex_lock(&l->mutex);
+    const int r = rp_try_read_lock_fast(l);
+    pthread_mutex_unlock(&l->mutex);
+    return r;
+}
+static inline int rp_try_write_lock(RpLock *l) {
+    if (!rp_slow()) return rp_try_write_lock_fast(l);
+    pthread_mutex_lock(&l->mutex);
+    const int r = rp_try_write_lock_fast(l);
+    pthread_mutex_unlock(&l->mutex);
+    return r;
+}
 static inline void rp_wake(RpLock *l) {
-    if (__atomic_load_n(&l->waiters, __ATOMIC_SEQ_CST)) {
+    if (rp_slow() || __atomic_load_n(&l->waiters, __ATOMIC_SEQ_CST)) {
         pthread_mutex_lock(&l->mutex);
         pthread_cond_broadcast(&l->changed);
         pthread_mutex_unlock(&l->mutex);

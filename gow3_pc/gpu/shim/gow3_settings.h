@@ -32,7 +32,7 @@ inline constexpr int OutputCount = 4;
 inline constexpr int OutputDefault = 1; ///< 1920x1080, the game's own size
 
 struct Values {
-    std::atomic<int> upscaler{UpscalerFsr3};
+    std::atomic<int> upscaler{UpscalerOff};
     std::atomic<int> preset{NativeAA};
     std::atomic<bool> sharpen{true};
     std::atomic<float> sharpness{0.3f};
@@ -125,6 +125,10 @@ struct Values {
     /// gow3 20 Oct 2026: mouse sensitivity while aiming (times mouse_sens) and up/down speed
     /// compared with left/right.
     std::atomic<float> mouse_aim_sens{1.0f}, mouse_vertical{1.0f};
+    /// 19 Nov 2026 (GitHub #168): with a scope (aim field of view under 45 degrees), times the aim
+    /// sensitivity and the zoom's own slowdown (src/runtime_mouselook.c). 10-200%; 100% is a fifth of
+    /// that slowdown's turn, the player's choice in the sniper scene.
+    std::atomic<float> mouse_scope_sens{1.0f};
     /// 11 Nov 2026: the walk key (key map "walk") toggles instead of acting while held, and how
     /// far the left stick goes while walking.
     std::atomic<bool> walk_toggle{false};
@@ -134,8 +138,9 @@ struct Values {
     std::atomic<int> prompts{-1};
     std::atomic<unsigned> controls_generation{0};
     /// The controller shortcut for the in-game menu (GitHub #15: LT + R3 is also the sniper
-    /// zoom): 0 LT + right stick click, 1 View + Menu together, 2 none (Insert on the keyboard).
-    std::atomic<int> menu_shortcut{0};
+    /// zoom): 0 LT + right stick click, 1 View + Menu together, 2 none (Insert on the keyboard,
+    /// the default).
+    std::atomic<int> menu_shortcut{2};
     /// gow3 18 Oct (GitHub #15, #19): menu_shortcut 3 = this custom controller shortcut, one or
     /// two SDL gamepad button names ("lefttrigger"/"righttrigger" for the triggers) joined by
     /// '+'; and the keyboard key that opens the menu (SDL key name). Guarded by ControlsMutex().
@@ -146,7 +151,7 @@ struct Values {
 
     /// Startup settings for the explicit GOW3_RENDER_RES compatibility patch only.
     int startup_preset = NativeAA;
-    int startup_upscaler = UpscalerFsr3;
+    int startup_upscaler = UpscalerOff;
     bool startup_object_motion = true;
     int startup_output_res = OutputDefault;
     int startup_live_resolution = 0;

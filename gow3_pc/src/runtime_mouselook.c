@@ -198,7 +198,17 @@ static void turn_debug(TurnDebug *d, float heading_now, float asked_degrees, con
 
 /* Third-person camera input 0x297440(camera, stick). */
 static TurnDebug follow_debug = {.name = "camera"};
-static volatile uint64_t camera_called_ms, aim_called_ms;
+static volatile uint64_t camera_called_ms, aim_called_ms, push_ms;
+static volatile uint32_t push_heading_bits;
+/* 19 Nov 2026 (GitHub #168): how much of the shown view a camera gives, from its camera manager
+ * entry (camera + 0x134, 0..1; the manager hands it to the camera's update, which compares it
+ * with 1). In the Pittsburgh suburbs' sniper scene the aim camera is 1 and the third-person
+ * camera 0 with no aim button held; in play the third-person camera is 1 and the aim camera 0
+ * until aiming. */
+static int camera_shown(const unsigned char *camera) {
+    const float blend = *(const float *)(camera + 0x134);
+    return isfinite(blend) && blend > 0.5f;
+}
 static ABI void *tlou_camera_input(unsigned char *camera, const float *stick, void *unused) {
     (void)stick;
     (void)unused;
@@ -206,7 +216,19 @@ static ABI void *tlou_camera_input(unsigned char *camera, const float *stick, vo
     float *direction = (float *)(camera + 0x1e0);
     if (!((TlouPlayerOf)(image + TLOU_PLAYER_OF))(*(const uint32_t *)(camera + 0xf0))) return NULL;
     /* with its yaw locked the camera does not take the mouse (the stick path does the same) */
-    if (!camera[0x1d0 + 0x28]) __atomic_store_n(&camera_called_ms, now_ms(), __ATOMIC_RELAXED);
+    if (!camera[0x1d0 + 0x28] && camera_shown(camera)) __atomic_store_n(&camera_called_ms, now_ms(), __ATOMIC_RELAXED);
+    /* 20 Nov 2026 (GitHub #185): pushing a dumpster or a pallet, the player's code sets this
+     * camera's direction from the object and locks its yaw (0x2982xx: camera + 0x1e0, lock at
+     * +0x1f8), and the right stick steers the object, the camera following it at up to about 25
+     * degrees/s. The mouse is the stick then; runtime_pad.c holds it until the camera has turned
+     * as far as the mouse moved (runtime_mouselook_push_heading). */
+    if (camera[0x1d0 + 0x28] && camera_shown(camera)) {
+        const float heading = heading_of((const float *)(camera + 0x1d0));
+        uint32_t bits;
+        memcpy(&bits, &heading, 4);
+        __atomic_store_n(&push_heading_bits, bits, __ATOMIC_RELAXED);
+        __atomic_store_n(&push_ms, now_ms(), __ATOMIC_RELAXED);
+    }
     const uint32_t frame = tlou_frame();
     float dx = 0, dy = 0;
     const int took = frame_look(camera, frame, &dx, &dy);
@@ -250,9 +272,11 @@ static ABI void *tlou_camera_input(unsigned char *camera, const float *stick, vo
          * rotation quaternion x y z w; forward is +z) */
         const float *q = (const float *)(camera + 0x150);
         const float forward_y = 2.0f * (q[1] * q[2] - q[3] * q[0]);
-        char extra[96];
-        snprintf(extra, sizeof(extra), ", curve %.3f, pitch %.1f", *(const float *)(camera + 0x380),
-                 asinf(forward_y < -1.0f ? -1.0f : forward_y > 1.0f ? 1.0f : forward_y) * 57.29578f);
+        char extra[128];
+        snprintf(extra, sizeof(extra), ", curve %.3f, pitch %.1f, fov %.2f, blend %.3f %.3f",
+                 *(const float *)(camera + 0x380),
+                 asinf(forward_y < -1.0f ? -1.0f : forward_y > 1.0f ? 1.0f : forward_y) * 57.29578f,
+                 *(const float *)(camera + 0x180), *(const float *)(camera + 0x130), *(const float *)(camera + 0x134));
         turn_debug(&follow_debug, heading_of(direction), asked, extra);
         if (getenv("GOW3_MOUSE_LOOK_TRACE")) {
             /* every call: the turned direction's heading against the shown camera's (its last
@@ -303,7 +327,7 @@ static ABI void *tlou_aim_input(void *out, unsigned char *controller, void *stic
     (void)stick;
     (void)flag;
     if (!controller || !direction || !image) return NULL;
-    __atomic_store_n(&aim_called_ms, now_ms(), __ATOMIC_RELAXED);
+    if (camera_shown(controller - 0x1d0)) __atomic_store_n(&aim_called_ms, now_ms(), __ATOMIC_RELAXED);
     /* 15 Nov 2026 (Joel hanging upside down in Bill's Town aimed wrong): the turns are about the
      * controller's own up vector, not the world's +Y (which stays the fallback), and the pitch
      * limit is measured from it. */
@@ -319,10 +343,26 @@ static ABI void *tlou_aim_input(void *out, unsigned char *controller, void *stic
     float dx = 0, dy = 0;
     const int took = frame_look(controller, tlou_frame(), &dx, &dy);
     float asked = 0.0f;
-    char extra[96] = "";
+    char extra[160] = "";
     if (took && (dx != 0.0f || dy != 0.0f) && isfinite(direction[0]) && isfinite(direction[1]) &&
         isfinite(direction[2])) {
-        const float per_count = look_scale(1);
+        /* 19 Nov 2026 (GitHub #168, scopes felt much faster): the controller lives at camera +
+         * 0x1d0 of its aim camera (camera-zoom2), whose shown field of view is at camera + 0x180
+         * (60 degrees for normal aiming, 75 for the third-person camera; a scope's is far
+         * narrower). The turn per count follows the view: tan(fov / 2) / tan(30 degrees), so
+         * normal aiming is unchanged and a scope moves the crosshair across the screen as fast. */
+        float zoom = 1.0f;
+        const float fov = *(const float *)(controller - 0x1d0 + 0x180);
+        if (isfinite(fov) && fov > 1.0f && fov < 170.0f) {
+            zoom = tanf(fov * 0.5f * 0.017453292f) / 0.57735027f;
+            zoom = zoom < 0.02f ? 0.02f : zoom > 2.0f ? 2.0f : zoom;
+        }
+        /* a scope (field of view under 45 degrees): the settings' scope sensitivity too, whose
+         * 100% is a fifth of the zoom's slowdown (20 Nov 2026: the player's 20% in the sniper
+         * scene made the default) */
+        const float scope = gow3gpu_controls_mouse_scope_sens();
+        if (isfinite(fov) && fov < 45.0f && scope > 0.0f) zoom *= 0.2f * scope;
+        const float per_count = look_scale(1) * zoom;
         if (dx != 0.0f) {
             const float angle = -dx * per_count * look_invert_x();
             turn_about(direction, up, angle);
@@ -343,23 +383,34 @@ static ABI void *tlou_aim_input(void *out, unsigned char *controller, void *stic
     }
     if (look_debug()) {
         const float along = dot3(direction, up), length = sqrtf(dot3(direction, direction));
-        snprintf(extra, sizeof(extra), ", elevation %.1f, up %.2f %.2f %.2f",
+        const unsigned char *aim_camera = controller - 0x1d0;
+        snprintf(extra, sizeof(extra), ", elevation %.1f, up %.2f %.2f %.2f, fov %.2f %.2f, blend %.3f %.3f, aim %d, speed %.3f %.3f",
                  length > 1e-4f ? asinf(fmaxf(-1.0f, fminf(1.0f, along / length))) * 57.29578f : 0.0f, up[0], up[1],
-                 up[2]);
+                 up[2], *(const float *)(aim_camera + 0x1ed8), *(const float *)(aim_camera + 0x180),
+                 *(const float *)(aim_camera + 0x130), *(const float *)(aim_camera + 0x134), runtime_pad_aim_held(),
+                 *(const float *)(controller + 0x138), *(const float *)(controller + 0x13c));
         turn_debug(&aim_debug, heading_of(direction), asked, extra);
     }
     return NULL;
 }
 
-/* A camera hook ran in the last 60 ms (a frame at 20 FPS): the mouse turns the camera directly;
- * otherwise (cutscenes, cameras without a hook) it is the right stick. 12 Nov 2026 (GitHub #123,
- * a pushed crate's camera did not turn with the mouse): the aim controller is updated every frame,
- * aiming or not, so it counts only while the aim button is held; the third-person camera's input
- * step runs only while that camera is in use. */
+/* A hooked camera that is shown ran in the last 60 ms (a frame at 20 FPS): the mouse turns the
+ * camera directly; otherwise (cutscenes, cameras without a hook) it is the right stick. The aim
+ * controller is updated every frame, aiming or not (12 Nov 2026, GitHub #123: a pushed crate's
+ * camera did not turn with the mouse), so each hook counts only while its camera is shown
+ * (camera_shown); until 19 Nov the aim hook counted only with the aim button held, which left
+ * the sniper scene, scoped without it, on the stick (GitHub #168). */
 int runtime_mouselook_camera_recent(void) {
     const uint64_t now = now_ms();
     return now - __atomic_load_n(&camera_called_ms, __ATOMIC_RELAXED) < 60 ||
-           (runtime_pad_aim_held() && now - __atomic_load_n(&aim_called_ms, __ATOMIC_RELAXED) < 60);
+           now - __atomic_load_n(&aim_called_ms, __ATOMIC_RELAXED) < 60;
+}
+
+int runtime_mouselook_push_heading(float *heading) {
+    if (now_ms() - __atomic_load_n(&push_ms, __ATOMIC_RELAXED) >= 100) return 0;
+    const uint32_t bits = __atomic_load_n(&push_heading_bits, __ATOMIC_RELAXED);
+    memcpy(heading, &bits, 4);
+    return 1;
 }
 
 int runtime_mouselook_aim_recent(void) {

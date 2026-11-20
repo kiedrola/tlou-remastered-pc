@@ -1571,6 +1571,20 @@ bool PipelineCache::StartBackgroundWarmUp() {
     auto& warm = *background;
     warm.started = std::chrono::steady_clock::now();
     warm.threads = WarmupThreadCount(std::max(1u, std::thread::hardware_concurrency()));
+    // gow3 19 Nov 2026: restoring pipeline binaries, the NVIDIA driver serializes the work: the
+    // warm-up took 49-51 s with 6, 3 or 2 threads (13,290 pipelines, GTX 1050 Ti), each restore
+    // 17.9, 7.8 and 5.4 ms; six threads only kept four more cores busy while the game started
+    // (gameplay 46.2 vs 47.0 FPS). With binaries two threads; compiling (no binaries: Intel, AMD
+    // APUs) keeps the count above. GOW3_WARMUP_THREADS=<n> sets it; 0: the count above with
+    // binaries too (as before).
+    const char* threads_env = std::getenv("GOW3_WARMUP_THREADS");
+    const bool old_count = threads_env && threads_env[0] == '0' && !threads_env[1];
+    if (!old_count && instance.GetPipelineBinaryGlobalKey().keySize != 0) {
+        warm.threads = std::min(warm.threads, 2u);
+    }
+    if (threads_env && std::atoi(threads_env) > 0) {
+        warm.threads = std::clamp(u32(std::atoi(threads_env)), 1u, 16u);
+    }
     warm.pool = std::make_unique<WarmupPool>(warm.threads, true);
     // The first job reads the whole store; with one thread the builds queue behind it.
     warm.pool->Push([this, &warm] {
@@ -1595,9 +1609,28 @@ bool PipelineCache::StartBackgroundWarmUp() {
             }
         }
         warm.in_order = u32(order.size());
-        for (auto& name : names) {
-            if (unread.contains(name)) {
-                order.push_back(std::move(name));
+        // gow3 19 Nov 2026: only the 1,000 pipelines used last are warmed up; the others load
+        // on demand when the game first uses them (as GOW3_ON_DEMAND_PIPELINES=1). A session
+        // uses ~520 of the ~13,700 cached. Walking route, GTX 1050 Ti, 16 GB, 2 runs each:
+        // all warmed 23-25 GB private, 44-48 FPS, worst frames 357-436 ms, warm-up ~50 s; on
+        // demand only 5.3 GB, 52 FPS, 644-728 ms; the last 1,000 6.2 GB, 52-53 FPS,
+        // 152-191 ms, warm-up ~4 s (the last 2,500: 8 GB, no better). GOW3_WARMUP_LIMIT=<n>
+        // sets the count, 0 warms up every cached pipeline as before.
+        static const size_t limit = [] {
+            const char* env = std::getenv("GOW3_WARMUP_LIMIT");
+            return env && *env ? size_t(std::strtoull(env, nullptr, 10)) : size_t{1000};
+        }();
+        if (limit) {
+            if (order.size() > limit) {
+                order.resize(limit);
+            }
+            warm.in_order = u32(order.size());
+            warm.total = u32(order.size());
+        } else {
+            for (auto& name : names) {
+                if (unread.contains(name)) {
+                    order.push_back(std::move(name));
+                }
             }
         }
         warm.order = std::move(order);

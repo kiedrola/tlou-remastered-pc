@@ -43,6 +43,12 @@ static void test_playgo_build(void) {
 static int choice_next=-1;
 int gow3gpu_choice_begin(const char *title, const char *const *items, const char *const *images, int count, int focus) { (void)title; (void)items; (void)images; (void)focus; return count>0; }
 int gow3gpu_choice_poll(void) { return choice_next; }
+/* The game's own save list page (runtime_menu_saves.c) is never available here: the overlay list. */
+int runtime_menu_saves_open(int type, int count, int new_first, const char *const *labels, const char *const *pictures,
+                            const char *const *chapters) {
+    (void)type; (void)count; (void)new_first; (void)labels; (void)pictures; (void)chapters; return 0;
+}
+int runtime_menu_saves_take_choice(void) { return -1; }
 int runtime_savedata_param(int32_t user, const char *dir, void *param) { (void)user; (void)dir; (void)param; return -1; }
 int runtime_savedata_icon(int32_t user, const char *dir, char *out, size_t size) { (void)user; (void)dir; (void)out; (void)size; return -1; }
 static int trophy_lists_shown, trophies_shown, trophy_last_shown=-1;

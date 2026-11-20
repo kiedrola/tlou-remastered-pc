@@ -4496,6 +4496,7 @@ bool BufferCache::DeferUntilLastReadback(std::function<void()> fn, VAddr label, 
             auto& deferred = deferred_values[label];
             deferred.value = value;
             deferred.bytes = label_bytes;
+            deferred_long_label |= label_bytes > 8;
             deferred.tick = pending_readbacks.back().tick;
             ++deferred.count;
         }
@@ -4530,6 +4531,38 @@ void BufferCache::ReleaseDeferredLabel(VAddr label, u32 label_bytes) {
 
 bool BufferCache::DeferredFenceTick(VAddr address, u64& tick, u32* value) const {
     std::scoped_lock lock{deferred_mutex};
+    // gow3 19 Nov 2026: 6.5% of the GPU command thread walking on a suburbs route was the scan
+    // below, run for every memory wait on a possibly deferred label. A wait reads the label
+    // itself or the high dword of an 8-byte one: both are looked up directly first; the scan
+    // stays for any other dword of a longer label. GOW3_FENCE_LOOKUP=0: the scan only.
+    static const bool direct = [] {
+        const char* env = std::getenv("GOW3_FENCE_LOOKUP");
+        return !(env && env[0] == '0');
+    }();
+    const auto take = [&](VAddr label, const DeferredValue& deferred) {
+        if (deferred.count == 0 || address < label ||
+            address + sizeof(u32) > label + deferred.bytes) {
+            return false;
+        }
+        tick = deferred.tick;
+        if (value) {
+            *value = static_cast<u32>(deferred.value >> ((address - label) * 8));
+        }
+        return true;
+    };
+    if (direct) {
+        for (const VAddr label : {address, address - sizeof(u32)}) {
+            if (const auto it = deferred_values.find(label);
+                it != deferred_values.end() && take(it->first, it->second)) {
+                return true;
+            }
+        }
+        // Labels are 4 or 8 bytes (RELEASE_MEM / EVENT_WRITE_EOP); a longer one, never seen,
+        // would fall through to the scan.
+        if (!deferred_long_label) {
+            return false;
+        }
+    }
     for (const auto& [label, deferred] : deferred_values) {
         if (deferred.count == 0) {
             continue;
