@@ -18,10 +18,12 @@
 #include "damage_hook.h"
 #include "runtime_mouselook.h"
 #include "runtime_gamesettings.h"
+#include "runtime_timing_probe.h"
 #include "gpu/gow3gpu.h"
 #if !defined(__x86_64__) || !defined(__GNUC__)
 #error This prototype requires x86-64 GCC or Clang (including MinGW).
 #endif
+#include <x86intrin.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <tlhelp32.h>
@@ -36,6 +38,7 @@
 #include <execinfo.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
+#include <time.h>
 #endif
 
 typedef struct { uint64_t address, size, flags; } Segment;
@@ -1193,6 +1196,40 @@ static void apply_patches(const char *path, Segment *segments, uint64_t ns, cons
     fclose(f);
     printf("Patches: %" PRIu64 " writes, %" PRIu64 " bytes applied, %" PRIu64 " pointers rebased\n",count,bytes,rebased);
 }
+/* The game's TSC divisor (TLOU Remastered eboot, 0x153D958). The engine turns raw RDTSC into
+ * milliseconds by dividing by this qword; the value burned into the executable is 3,000,000
+ * ticks per ms - the PS4's 3.0 GHz TSC - and the game never writes it (there is no
+ * calibration). The host's RDTSC runs at the host's own frequency, so the whole game clock
+ * (delta time, animation, physics, audio) runs host_TSC / 3.0 GHz times fast: about 1.34x on a
+ * 4 GHz CPU, which the player sees as the "2x speed" bug that capping the presentation to 30
+ * fps does not fix (linux/BUG-SPEED.md). Measure the host frequency and set the divisor to it.
+ * Linux only: the Windows build is left byte for byte as it was (the port's compatibility
+ * guarantee). GOW3_TSC_PATCH=0 keeps the game's 3.0 GHz default. */
+#ifndef _WIN32
+static void calibrate_guest_tsc(unsigned char *image, Segment *segments, uint64_t ns) {
+    const uint64_t at = 0x153D958;
+    if (!mapped(segments, ns, at, 8)) { printf("TSC: 0x%llx is not in this image; left as is\n", (unsigned long long)at); return; }
+    uint64_t before;
+    memcpy(&before, image + at, 8);
+    if (before != 3000000) { printf("TSC: divisor already %llu (the PS4's 3,000,000 expected); left as is\n", (unsigned long long)before); return; }
+    const char *off = getenv("GOW3_TSC_PATCH");
+    if (off && !strcmp(off, "0")) return;
+    struct timespec t0, t1, sleep = {0, 125000000};
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    const uint64_t begin = __rdtsc();
+    nanosleep(&sleep, NULL);
+    const uint64_t stop = __rdtsc();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    const long double seconds = (long double)(t1.tv_sec - t0.tv_sec) + (long double)(t1.tv_nsec - t0.tv_nsec) / 1e9L;
+    if (seconds <= 0.05L) { printf("TSC: the measurement was too short; left as is\n"); return; }
+    const uint64_t hz = (uint64_t)((long double)(stop - begin) / seconds);
+    if (hz < 1000000000ULL || hz > 20000000000ULL) { printf("TSC: %.2f GHz is implausible; left as is\n", (double)hz / 1e9); return; }
+    const uint64_t per_ms = (hz + 500) / 1000;
+    memcpy(image + at, &per_ms, 8);
+    printf("Runtime: guest TSC divisor %llu -> %llu (host TSC %.3f GHz; the game's 3.0 GHz default ran %.3fx fast)\n",
+           (unsigned long long)before, (unsigned long long)per_ms, (double)hz / 1e9, (double)per_ms / (double)before);
+}
+#endif
 /* Restarts the game through run.sh (the settings menu: a new render resolution is a patch
  * applied at start). Descriptors are closed first so the old GPU device and its memory are
  * released before the new process opens its own. */
@@ -1513,6 +1550,9 @@ int main(int argc, char **argv) {
         _exit(missing ? 1 : 0); /* no destructors: GPU threads are running */
     }
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
+#ifndef _WIN32
+    calibrate_guest_tsc(image, segments, ns);
+#endif
     if (gpu_enabled) install_mouse_look(segments, ns, size);
     if (gpu_enabled) install_stick_boost(segments, ns, size);
     if (gpu_enabled) install_menu_exit(segments, ns, size);
@@ -1566,6 +1606,7 @@ int main(int argc, char **argv) {
             if (result) fail("module initializer failed");
         }
     }
+    runtime_timing_probe_start(image, size);
     printf("Entering original x86-64 code at guest offset 0x%" PRIx64 "\n", entry);
 #ifdef _WIN32
     start_exec_watch();

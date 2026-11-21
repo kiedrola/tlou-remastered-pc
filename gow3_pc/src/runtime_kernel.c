@@ -14,7 +14,10 @@
 #include <sys/time.h>
 #ifdef _WIN32
 #include <windows.h>
+#endif
 #include <x86intrin.h>
+#ifndef _WIN32
+#include <cpuid.h> /* __cpuid: invariant-TSC check for GOW3_NATIVE_TSC */
 #endif
 #ifndef _WIN32
 #include <sys/random.h>
@@ -47,17 +50,17 @@ static int32_t fail_posix(int e) { *runtime_errno()=runtime_guest_errno(e); retu
 /* ---- clocks and sleeping ---- */
 static struct timespec process_start;
 static uint64_t native_tsc_hz;
-#ifdef _WIN32
 static uint64_t native_process_start;
-#else
-/* gow3 (Linux): the native-RDTSC origin only exists with GOW3_NATIVE_TSC (Windows). */
-static uint64_t native_process_start __attribute__((unused));
-#endif
 __attribute__((constructor)) static void remember_start(void) {
     clock_gettime(CLOCK_MONOTONIC,&process_start);
-#ifdef _WIN32
     const char *native=getenv("GOW3_NATIVE_TSC");
     if (native && native[0]=='1') {
+        /* gow3: report the measured host TSC and let the guest's inline RDTSC instructions drive
+         * its clock. The pair is consistent only while the TSC runs at the measured frequency.
+         * Windows measures against QPC, Linux against CLOCK_MONOTONIC. The guest's master clock
+         * divides inline RDTSC deltas by this value (the eboot writes it at start-up through
+         * sceKernelGetTscFrequency), so it must match the host rdtsc rate, not 1 GHz. */
+#ifdef _WIN32
         LARGE_INTEGER frequency, begin, end;
         QueryPerformanceFrequency(&frequency);
         QueryPerformanceCounter(&begin);
@@ -66,20 +69,43 @@ __attribute__((constructor)) static void remember_start(void) {
         const uint64_t stop=__rdtsc();
         QueryPerformanceCounter(&end);
         native_tsc_hz=(uint64_t)((long double)(stop-start)*frequency.QuadPart/(end.QuadPart-begin.QuadPart));
-        native_process_start=__rdtsc();
-        clock_gettime(CLOCK_MONOTONIC,&process_start);
-        printf("Runtime: native TSC frequency %llu Hz (inline guest RDTSC)\n",(unsigned long long)native_tsc_hz);
-        /* gow3 diagnostics (GOW3_TIME_SCALE=<factor> > 1): the TSC frequency reported to the game
-         * is scaled, so its TSC clock runs that much slower. A slow diagnostic run (validation
-         * layers, captures) then looks like 60 FPS to the game: a cloth flicker showed only above
-         * 30 FPS (16 Oct). Other clocks stay real time. */
-        const char *scale=getenv("GOW3_TIME_SCALE");
-        if (scale && atof(scale)>1.0) {
-            native_tsc_hz=(uint64_t)((long double)native_tsc_hz*atof(scale));
-            printf("Runtime: guest TSC clock slowed %.2fx (GOW3_TIME_SCALE, diagnostics)\n",atof(scale));
+#else
+        struct timespec t0,t1;
+        clock_gettime(CLOCK_MONOTONIC,&t0);
+        const uint64_t start=__rdtsc();
+        struct timespec wait={.tv_sec=0,.tv_nsec=100000000};
+        nanosleep(&wait,&wait);
+        const uint64_t stop=__rdtsc();
+        clock_gettime(CLOCK_MONOTONIC,&t1);
+        const long double elapsed_ns=(long double)(t1.tv_sec-t0.tv_sec)*1000000000L+(long double)(t1.tv_nsec-t0.tv_nsec);
+        native_tsc_hz=elapsed_ns>1000000L ? (uint64_t)((long double)(stop-start)*1000000000L/elapsed_ns) : 0;
+        /* Warn (but allow) when the host TSC is not invariant: its rate may drift under P-states,
+         * and the native pair would then run off real time. */
+        {
+            unsigned int eax,ebx,ecx,edx;
+            __cpuid(0x80000000,ebx,ecx,edx,edx); /* ebx (EAX) = max extended leaf */
+            if (ebx>=0x80000007) {
+                __cpuid(0x80000007,eax,ebx,ecx,edx);
+                if (!(edx&(1<<8)))
+                    printf("Runtime: warning: host TSC is not invariant (CPUID 80000007H:EDX[8]); guest TSC clock may drift with P-states\n");
+            }
+        }
+#endif
+        if (native_tsc_hz>0) {
+            native_process_start=__rdtsc();
+            clock_gettime(CLOCK_MONOTONIC,&process_start);
+            printf("Runtime: native TSC frequency %llu Hz (inline guest RDTSC)\n",(unsigned long long)native_tsc_hz);
+            /* gow3 diagnostics (GOW3_TIME_SCALE=<factor> > 1): the TSC frequency reported to the game
+             * is scaled, so its TSC clock runs that much slower. A slow diagnostic run (validation
+             * layers, captures) then looks like 60 FPS to the game: a cloth flicker showed only above
+             * 30 FPS (16 Oct). Other clocks stay real time. */
+            const char *scale=getenv("GOW3_TIME_SCALE");
+            if (scale && atof(scale)>1.0) {
+                native_tsc_hz=(uint64_t)((long double)native_tsc_hz*atof(scale));
+                printf("Runtime: guest TSC clock slowed %.2fx (GOW3_TIME_SCALE, diagnostics)\n",atof(scale));
+            }
         }
     }
-#endif
 }
 /* gow3 diagnostics (GOW3_TIME_SCALE=<factor> > 1): every guest clock (TSC frequency, process
  * time, clock_gettime, gettimeofday) runs that much slower than real time, counted from the
@@ -180,21 +206,20 @@ static ABI uint64_t process_time(void) {
 }
 static ABI uint64_t process_time_counter(void) {
     clock_tick(32);
-#ifdef _WIN32
     if (native_tsc_hz) return __rdtsc()-native_process_start;
-#endif
     struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t);
     scale_timespec(&t,&process_start);
     return (uint64_t)(t.tv_sec-process_start.tv_sec)*1000000000+(uint64_t)(t.tv_nsec-process_start.tv_nsec);
 }
 static ABI uint64_t process_time_frequency(void) { return native_tsc_hz ? native_tsc_hz : 1000000000; }
 /* The guest's TSC is the process clock in nanoseconds. The raw rdtsc differs per core on some
- * hosts (3.9 s apart on a Xeon E5-2680 v4, #42), so a thread moving cores made the game jump. */
+ * hosts (3.9 s apart on a Xeon E5-2680 v4, #42), so a thread moving cores made the game jump.
+ * GOW3_NATIVE_TSC=1 (all platforms) opts into the raw rdtsc and the measured host frequency:
+ * the eboot's inline-RDTSC master clock divides by the frequency it gets here, so on a 4 GHz
+ * host the 1 GHz fallback ran its dt 4x fast. */
 static ABI uint64_t read_tsc(void) {
     clock_tick(33);
-#ifdef _WIN32
     if (native_tsc_hz) return __rdtsc();
-#endif
     return process_time_counter();
 }
 static ABI uint64_t tsc_frequency(void) { return native_tsc_hz ? native_tsc_hz : 1000000000; }
