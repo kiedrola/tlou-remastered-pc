@@ -93,6 +93,15 @@ juegos estilo gow3. Si algún día se quiere un modo 60 fps real, esa es la Tare
 `is-locked-at-30fps?` / la opción Framerate del menú de debug), no un cambio del lado de la
 presentación.
 
+*(Corrección, 21-11-2026: la afirmación de que «cualquier valor mayor hace que el
+juego vaya más rápido» era errónea: el aumento de velocidad observado era el bug TSC
+(la HLE reportaba 1 GHz mientras el juego divide su `rdtsc` a la frecuencia del host),
+no el framerate — con la simulación en tiempo real (fix `GOW3_NATIVE_TSC=1`, ver
+`BUG-SPEED.md` §11), la tasa de presentación no cambia la velocidad de la simulación.
+Verificado por el usuario en el 7950X: 60 fps estables (`fps_limit=60`), sin pérdida de
+dispositivo. 30 fps sigue siendo el defecto recomendado (punto de diseño del motor);
+ver Tarea 11.5 del roadmap, cerrada.)*
+
 ## Seguridad de Windows
 
 - `gow3_settings.h`: la rama `#ifdef _WIN32` es la línea original exacta

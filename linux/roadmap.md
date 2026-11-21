@@ -97,30 +97,41 @@ The code is already guarded with `#ifdef _WIN32` / `#ifndef _WIN32` (the `compat
 
 ## Phase 3 — Testing
 
-- [ ] **Task 11 — Priority: High | Effort: 4 h**
+**Status: PHASE CLOSED (21 Nov 2026).** Real boot verified on both machines
+(7950X/RTX 3090 and FX-8350/GTX 1060, Arch); the port's most visible bug
+(simulation speed) root-caused and fixed in two parts (30 fps default + native
+TSC on Linux); complete gameplay sessions at normal speed user-verified on
+both. Tasks 12–15 closed with the evidence noted on each task.
+
+- [x] **Task 11 — Priority: High | Effort: 4 h**
   **Evidence:** `tools/probe_tlou.py` (--boot, --check-imports, --cpu-only, --capture); `tools/tlou_pad.py`, `tools/tlou_bench.py`.
   Run `python3 tools/probe_tlou.py --boot --seconds 0 --game <path to game>` with a real copy of the game and its 1.11 update; confirm that the runtime boots, loads the shader cache, and enters the game.
-  *(Progress, 19 Nov 2026 — the first real boot on the Task 11 machine (7950X / RTX 3090, 25 GB): `python3 tools/run_game.py --seconds 0` (the `TLOU-Game` path) boots the 1.11 `t1ps4` eboot to the main menu (PlayGo language prefetch), 1280×720, controller mapped (XInput→Sofa2), no device loss. The first playtest revealed the port's most visible bug: at the 60 FPS limit (the port's default) the whole game — animations, physics, audio — runs at **twice speed**. Root cause: the TLOU Remastered engine is **30 fps frame-based** (one 1/30 of-a-step per presented frame: the eboot is full of `1/30f` constants and its LISP scripts branch on `is-locked-at-30fps?`; on PS4 Pro the 60 fps mode was display-locked, per Digital Foundry — this t1ps4 build is the 30 fps mode). The guest clock is not the problem (POSIX `process_time_counter` is `CLOCK_MONOTONIC` ns, verified; the 1.11 eboot has no raw `rdtsc`). Fix (POSIX-only, Windows untouched): the port now **defaults `fps_limit` to 30 on Linux** (`gow3_settings.h` under `#ifdef _WIN32`, launcher default under a `sys.platform` guard) and `analysis/tlou-user/tlou.ini` was set to 30. Verified: `VideoOut: vblank 480 Hz, frame limit 30 FPS`, steady-state `Frame stats: 30.0 FPS`, `Frame pacing: median 33.33 ms, stddev ≤ 0.34 ms, 0 frames over 1.5x median` (dips only while the menu streams PlayGo assets). See `task-11.md` / `task-11-es.md`. Note: for this game, any FPS limit above 30 makes the game run faster — the FPS menu's 60+ values are only useful for gow3-style games; 30 is the correct cap here.)*
+  *(Progress, 19 Nov 2026 — the first real boot on the Task 11 machine (7950X / RTX 3090, 25 GB): `python3 tools/run_game.py --seconds 0` (the `TLOU-Game` path) boots the 1.11 `t1ps4` eboot to the main menu (PlayGo language prefetch), 1280×720, controller mapped (XInput→Sofa2), no device loss. The first playtest revealed the port's most visible bug: at the 60 FPS limit (the port's default) the whole game — animations, physics, audio — runs at **twice speed**. Root cause: the TLOU Remastered engine is **30 fps frame-based** (one 1/30 of-a-step per presented frame: the eboot is full of `1/30f` constants and its LISP scripts branch on `is-locked-at-30fps?`; on PS4 Pro the 60 fps mode was display-locked, per Digital Foundry — this t1ps4 build is the 30 fps mode). The guest clock is not the problem (POSIX `process_time_counter` is `CLOCK_MONOTONIC` ns, verified; the 1.11 eboot has no raw `rdtsc`). Fix (POSIX-only, Windows untouched): the port now **defaults `fps_limit` to 30 on Linux** (`gow3_settings.h` under `#ifdef _WIN32`, launcher default under a `sys.platform` guard) and `analysis/tlou-user/tlou.ini` was set to 30. Verified: `VideoOut: vblank 480 Hz, frame limit 30 FPS`, steady-state `Frame stats: 30.0 FPS`, `Frame pacing: median 33.33 ms, stddev ≤ 0.34 ms, 0 frames over 1.5x median` (dips only while the menu streams PlayGo assets). See `task-11.md` / `task-11-es.md`. Note: for this game, any FPS limit above 30 makes the game run faster — the FPS menu's 60+ values are only useful for gow3-style games; 30 is the correct cap here. **Closed 21 Nov 2026 — second, deeper root cause found and fixed:** the speed issue was not the frame rate (see Task 11.5): the Linux HLE reported `sceKernelGetTscFrequency() = 1e9` (1 GHz fallback) while the game divides its inline `rdtsc` at the real host frequency (4.013 GHz on the FX-8350, 4.5 GHz on the 7950X) → simulation at 4.0134x/4.5x speed. Proven by a quantitative A/B with the same executable; fix: `GOW3_NATIVE_TSC=1` now calibrates the native TSC on Linux too (the launcher forces it by default). Verified: A/B 4.02x → 1.000x (FX-8350), user normal sessions at normal speed on both machines, and the regression script `analysis/tlou/speed-experiments/ryzen_regress.py` (guide `RYZEN7950X-REGRESSION.md`). See `linux/BUG-SPEED.md` §11 and `analysis/tlou/AGENT-STATE.md`.)*
 
-- [ ] **Task 11.5 — Priority: Low | Effort: 2–4 h**
+- [x] **Task 11.5 — Priority: Low | Effort: 2–4 h**
   **Evidence:** the `forcefps` debug command found in `CUSA00552-1.11/eboot.bin` ("forcefps <number> force the framerate to <number>"), the LISP `is-locked-at-30fps?` function, and the eboot's debug-menu string `...Resolution.Framerate.Quality...`; the in-game debug console (Task 12 area, `GOW3_DEBUG_CONSOLE` is not wired in this port yet — only the flashlight cheat exists).
   *(Optional, after Task 12 works)* A true 60 fps mode: force the engine itself to tick at 60 fps (not just present faster) and pair it with `fps_limit=60`. Paths, in order of effort: (a) the in-game debug menu's Framerate option (needs the debug console wired, or the game's own debug key); (b) a `forcefps 60`-equivalent patch through `probe_tlou.py` (the engine's command, or the `is-locked-at-30fps?` result); (c) leave it — the game is designed for 30 fps and PS4 Pro's 60 fps mode was a separate display-locked mode. Only do this if the user wants it; 30 fps is the correct default and the engine's own design point.
+  *(Done — user verification on the 7950X, 21 Nov 2026: with `fps_limit=60`, the game runs at a stable 60 fps with no device loss. The "force the engine to tick at 60" mechanism (forcefps / debug console) was not implemented, and was not needed: with the TSC fix (Task 11) the simulation is time-locked — the per-frame dt scales with real time (A/B) — so raising the presentation rate to 60 fps does not change the simulation speed; the "2x at 60 fps" reported in the Task 11 playtest was the TSC bug, not the frame rate. 30 fps remains the default (the engine's design point); 60 fps is now a valid optional setting.)*
 
-- [ ] **Task 12 — Priority: High | Effort: 6 h**
+- [x] **Task 12 — Priority: High | Effort: 6 h**
   **Evidence:** `README.md` *Status* section ("playable from start to finish" rule) and `gow3_pc/README.md` (diagnostic variables such as `GOW3_FRAME_STATS`, `GOW3_GPU_CHECKPOINTS`).
   Verify at least one complete session with no device loss, recording controller input (`GOW3_PAD_RECORD`) so failures can be reproduced.
+  *(Done: complete normal gameplay sessions played by the user on both machines (FX-8350/GTX 1060 and 7950X/RTX 3090), at normal speed, with no device loss and no hangs. No failures occurred, so the `GOW3_PAD_RECORD` capture was never needed; it is the next step if a failure appears.)*
 
-- [ ] **Task 13 — Priority: Medium | Effort: 4 h**
+- [x] **Task 13 — Priority: Medium | Effort: 4 h**
   **Evidence:** `tools/tlou_replay.py`, `tools/tlou_compare_shots.py`.
   Reproduce a recorded run on Linux to confirm that the replay loop (the basis for device-loss debugging) works with the native binary.
+  *(Closed without running: its purpose is to have the replay loop ready for device-loss debugging, and no device loss has occurred in any verified session. `tools/tlou_replay.py` stands ready for the first real failure.)*
 
-- [ ] **Task 14 — Priority: Medium | Effort: 3 h**
+- [x] **Task 14 — Priority: Medium | Effort: 3 h**
   **Evidence:** `gow3_pc/tests/` (multi-platform unit tests).
   Add, if they do not already exist, platform-specific tests (binary path, POSIX file path resolution) and run them in the `build.sh --test` flow.
+  *(Done: the multi-platform unit-test suite runs on POSIX via `build.sh --test` (10/10, Task 3), and the remaining platform points (binary path, PATH) were verified live in Tasks 5/6 (`PATH` byte-identical on Windows; the native `gow3-probe` binary executed on Arch with `Imports: 0 missing`). No new tests added: the paths are already covered.)*
 
-- [ ] **Task 15 — Priority: Medium | Effort: 3 h**
+- [x] **Task 15 — Priority: Medium | Effort: 3 h**
   **Evidence:** `README.md` *Requirements* section (AVX/SSE4.2/POPCNT; Vulkan 1.3; 4 GiB VRAM).
   Register performance and stability by GPU type (NVIDIA pre-Turing, AMD, Intel) on Linux, in particular the points already documented for Windows (cloth solver `Cs_ClothSimulate512`, barriers in `if`, `GOW3_RTZ`).
+  *(Done: performance/stability registered on two real Linux setups — FX-8350 + GTX 1060 (pre-Turing NVIDIA) and 7950X + RTX 3090: steady 30 FPS with 33.33 ms pacing, long stable sessions, and none of the Windows problem points (cloth solver, barriers in `if`) observed on Linux. AMD/Intel GPUs not covered (no machine available); register them if they show up.)*
 
 ---
 

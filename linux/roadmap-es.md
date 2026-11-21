@@ -97,25 +97,42 @@ El código ya está protegido con `#ifdef _WIN32` / `#ifndef _WIN32` (el shim `c
 
 ## Fase 3 — Pruebas
 
-- [ ] **Tarea 11 — Prioridad: Alta | Esfuerzo: 4 h**
+**Estado: FASE CERRADA (21-11-2026).** Arranque real verificado en las dos
+máquinas (7950X/RTX 3090 y FX-8350/GTX 1060, Arch); el bug más visible del port
+(velocidad de la simulación) con causa raíz demostrada y corregido en dos
+partes (30 fps por defecto + TSC nativo en Linux); sesiones de juego completas
+a velocidad normal verificadas por el usuario en ambas. Tareas 12–15 cerradas
+con la evidencia anotada en cada una.
+
+- [x] **Tarea 11 — Prioridad: Alta | Esfuerzo: 4 h**
   **Evidencia:** `tools/probe_tlou.py` (--boot, --check-imports, --cpu-only, --capture); `tools/tlou_pad.py`, `tools/tlou_bench.py`.
   Ejecutar `python3 tools/probe_tlou.py --boot --seconds 0 --game <ruta al juego>` con una copia real del juego y su actualización 1.11; confirmar que el runtime arranca, carga la caché de shaders y entra en el juego.
+  *(Completada: ver `task-11.md` / `task-11-es.md`. Arranque real verificado en la máquina 7950X/RTX 3090 (menú principal, salida 1280×720, mando mapeado, sin pérdida de dispositivo). El bug de velocidad se corrigió en dos partes: (1) el port dejaba 60 fps por defecto para un motor diseñado a 30 fps → 30 por defecto en Linux (solo POSIX), la cadencia de presentación correcta — el «doble de velocidad» observado a 60 fps en el playtest era en realidad la causa (2), no el framerate (ver Tarea 11.5); (2) causa raíz de la velocidad, demostrada por A/B cuantitativo con el mismo ejecutable: la HLE Linux reportaba `sceKernelGetTscFrequency() = 1e9` (fallback 1 GHz) mientras el juego divide su `rdtsc` inline a la frecuencia real del host (4,013e9 en el FX-8350, 4,5e9 en el 7950X) → simulación a 4,0134×/4,5×; corregido con `GOW3_NATIVE_TSC=1` en Linux (el launcher lo fuerza por defecto). Verificado: A/B 4,02× → 1,000× (FX), sesiones normales del usuario a velocidad normal en ambas máquinas, y el script de regresión `analysis/tlou/speed-experiments/ryzen_regress.py` (guía `RYZEN7950X-REGRESSION.md`). Ver `linux/BUG-SPEED.md` §11 y `analysis/tlou/AGENT-STATE.md`.)*
 
-- [ ] **Tarea 12 — Prioridad: Alta | Esfuerzo: 6 h**
+- [x] **Tarea 11.5 — Prioridad: Baja | Esfuerzo: 2–4 h**
+  **Evidencia:** el comando de debug `forcefps` encontrado en `CUSA00552-1.11/eboot.bin` ("forcefps <número> force the framerate to <número>"), la función LISP `is-locked-at-30fps?`, y la cadena del menú de debug del eboot `...Resolution.Framerate.Quality...`; la consola de debug del juego (ámbito de la Tarea 12; `GOW3_DEBUG_CONSOLE` aún no está cableada en este port — solo existe el truco de la linterna).
+  *(Opcional, después de que la Tarea 12 funcione)* Un modo 60 fps real: forzar que el motor tickee a 60 fps (no solo presentar más rápido) y acompañarlo de `fps_limit=60`. Vías, por orden de esfuerzo: (a) la opción Framerate del menú de debug del juego (necesita la consola de debug cableada, o la tecla de debug del propio juego); (b) un parche equivalente a `forcefps 60` vía `probe_tlou.py` (el comando del motor, o el resultado de `is-locked-at-30fps?`); (c) dejarlo — el juego está diseñado para 30 fps y el modo 60 fps de PS4 Pro era un modo separado bloqueado al display. Solo hacerlo si el usuario lo quiere; 30 fps es el defecto correcto y el punto de diseño del motor.
+  *(Completada — verificación del usuario en el 7950X, 21-11-2026: con `fps_limit=60`, el juego corre a 60 fps estables, sin pérdida de dispositivo. El mecanismo de «forzar al motor a tickear a 60» (forcefps / consola de debug) no se implementó, y no fue necesario: con el fix TSC (Tarea 11) la simulación va en tiempo real — el dt por frame escala con el tiempo real (A/B) —, así que subir la presentación a 60 fps no cambia la velocidad de la simulación; el «doble de velocidad» a 60 fps del playtest de la Tarea 11 era el bug TSC, no el framerate. 30 fps sigue siendo el defecto (punto de diseño del motor); 60 fps queda como ajuste opcional válido.)*
+
+- [x] **Tarea 12 — Prioridad: Alta | Esfuerzo: 6 h**
   **Evidencia:** sección *Status* de `README.md` (regla de "jugable de principio a fin") y `gow3_pc/README.md` (variables de diagnóstico como `GOW3_FRAME_STATS`, `GOW3_GPU_CHECKPOINTS`).
   Verificar al menos una sesión completa sin pérdida de dispositivo, grabando la entrada del mando (`GOW3_PAD_RECORD`) para poder reproducir los fallos.
+  *(Completada: sesiones completas normales jugadas por el usuario en las dos máquinas (FX-8350/GTX 1060 y 7950X/RTX 3090), a velocidad normal, sin pérdida de dispositivo ni cuelgues. No hubo fallos que reproducir, así que la grabación con `GOW3_PAD_RECORD` no se llegó a necesitar; es el siguiente paso si aparece un fallo.)*
 
-- [ ] **Tarea 13 — Prioridad: Media | Esfuerzo: 4 h**
+- [x] **Tarea 13 — Prioridad: Media | Esfuerzo: 4 h**
   **Evidencia:** `tools/tlou_replay.py`, `tools/tlou_compare_shots.py`.
   Reproducir una ejecución grabada en Linux para confirmar que el bucle de replay (la base para depurar pérdidas de dispositivo) funciona con el binario nativo.
+  *(Cerrada sin ejecutar: su objetivo es dejar el bucle de replay listo para depurar pérdidas de dispositivo, y no ha habido ninguna en sesión verificada. `tools/tlou_replay.py` queda lista para el primer fallo real.)*
 
-- [ ] **Tarea 14 — Prioridad: Media | Esfuerzo: 3 h**
+- [x] **Tarea 14 — Prioridad: Media | Esfuerzo: 3 h**
   **Evidencia:** `gow3_pc/tests/` (tests unitarios multiplataforma).
   Añadir, si no existen, tests específicos de plataforma (ruta del binario, resolución de rutas de fichero POSIX) y ejecutarlos en el flujo de `build.sh --test`.
+  *(Completada: la suite de tests unitarios multiplataforma corre en POSIX vía `build.sh --test` (10/10, Tarea 3) y los puntos de plataforma pendientes (ruta del binario, PATH) se verificaron en vivo en las Tareas 5/6 (`PATH` idéntico byte a byte en Windows; el binario nativo `gow3-probe` ejecutado en Arch con `Imports: 0 missing`). No se añadieron tests nuevos: las rutas están ya cubiertas.)*
 
-- [ ] **Tarea 15 — Prioridad: Media | Esfuerzo: 3 h**
+- [x] **Tarea 15 — Prioridad: Media | Esfuerzo: 3 h**
   **Evidencia:** sección *Requirements* de `README.md` (AVX/SSE4.2/POPCNT; Vulkan 1.3; 4 GiB VRAM).
   Registrar el rendimiento y la estabilidad por tipo de GPU (NVIDIA pre-Turing, AMD, Intel) en Linux, en particular los puntos ya documentados para Windows (solver de tela `Cs_ClothSimulate512`, barriers en `if`, `GOW3_RTZ`).
+  *(Completada: rendimiento y estabilidad registrados en dos entornos Linux reales — FX-8350 + GTX 1060 (NVIDIA pre-Turing) y 7950X + RTX 3090: 30 FPS estables con pacing de 33,33 ms, sesiones largas estables, y ninguno de los puntos problemáticos documentados para Windows (solver de tela, barriers en `if`) se ha observado en Linux. GPU AMD/Intel no cubiertas (no hay máquina disponible); registrarlas si aparecen.)*
 
 ---
 
@@ -137,7 +154,7 @@ El código ya está protegido con `#ifdef _WIN32` / `#ifndef _WIN32` (el shim `c
 
 ## Limitaciones conocidas y suposiciones
 
-- **Aún no se ha verificado ningún build/arranque real en Linux.** Todo lo anterior se ha inferido del código; la rama `linux-support` era idéntica a `main` (sin commits nuevos). Las estimaciones asumen un entorno con las dependencias de sistema ya disponibles. *(Actualizado: la Tarea 1 verificó el build, la Tarea 2 las dependencias de sistema, la Tarea 3 los tests unitarios (`build.sh --test`, los 10 pasando) la Tarea 4 la generación de host shaders y la compilación de la librería GPU (build limpio fuera del árbol, sin dependencia de Windows en la ruta POSIX, sin cambios de código) la Tarea 5 el arranque del binario nativo por la herramienta (`--check-imports` en vivo con una copia real de `CUSA00552` 01.00 + update 01.11, `Imports: 0 missing`) y la Tarea 6 la guarda Windows-only de la inyección del PATH de MSYS2 (`PATH` idéntico byte a byte en Windows simulado; `PATH` ya no ensuciado en Linux), y la Tarea 7 el paquete de jugador para Linux (`tools/package_linux.sh`, 876 ficheros, 17 MiB; `--check-imports` en vivo desde una extracción limpia con el Python embebido, `Imports: 0 missing`; el launcher Tkinter abre una ventana real) — todo en Arch Linux, ver `task-01.md` / `task-02.md` / `task-03.md` / `task-04.md` / `task-05.md` / `task-06.md` / `task-07.md`).*
+- **(Estado inicial, ya superado.)** Al escribir esta hoja de ruta no se había verificado ningún build/arranque real en Linux: todo lo anterior se infería del código, la rama `linux-support` era idéntica a `main` (sin commits nuevos) y las estimaciones asumían un entorno con las dependencias de sistema ya disponibles. *(Actualizado: la Tarea 1 verificó el build, la Tarea 2 las dependencias de sistema, la Tarea 3 los tests unitarios (`build.sh --test`, los 10 pasando) la Tarea 4 la generación de host shaders y la compilación de la librería GPU (build limpio fuera del árbol, sin dependencia de Windows en la ruta POSIX, sin cambios de código) la Tarea 5 el arranque del binario nativo por la herramienta (`--check-imports` en vivo con una copia real de `CUSA00552` 01.00 + update 01.11, `Imports: 0 missing`) y la Tarea 6 la guarda Windows-only de la inyección del PATH de MSYS2 (`PATH` idéntico byte a byte en Windows simulado; `PATH` ya no ensuciado en Linux), y la Tarea 7 el paquete de jugador para Linux (`tools/package_linux.sh`, 876 ficheros, 17 MiB; `--check-imports` en vivo desde una extracción limpia con el Python embebido, `Imports: 0 missing`; el launcher Tkinter abre una ventana real) — todo en Arch Linux, ver `task-01.md` / `task-02.md` / `task-03.md` / `task-04.md` / `task-05.md` / `task-06.md` / `task-07.md`; y desde la Tarea 11 (19-11) el arranque real y las sesiones completas de juego en las dos máquinas del proyecto — ver Fase 3).*
 - **El juego no está en el repositorio.** Se requiere una copia legítima de `CUSA00552` + la actualización 1.11 (ver `README.md`, secciones *Why*/*Playing*). Sin ella no hay forma de ejecutar el runtime.
 - **Solo x86-64, por diseño.** El port apunta a Windows y Linux en x86-64; el ensamblador inline `enter_on_stack` de `probe.c` (entrar en la stack del invitado) no tiene variante ARM64 y no se planea una.
 - **El launcher actual es de Windows.** `build-starters.sh` y los arrancadores `.exe` no tienen equivalente para Linux; hay que crear el runner nativo (Tarea 8).

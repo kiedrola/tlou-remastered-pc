@@ -85,6 +85,14 @@ wanted, that is Task 11.5 (force the engine itself to tick at 60: the `forcefps`
 command / the LISP `is-locked-at-30fps?` / the debug menu's Framerate option), not a
 present-side change.
 
+*(Correction, 21 Nov 2026: the claim that "any higher value makes the game run faster"
+was wrong: the observed speed-up was the TSC bug (the HLE reported 1 GHz while the game
+divides its `rdtsc` at the host's frequency), not the frame rate — with the simulation
+time-locked (fix `GOW3_NATIVE_TSC=1`, see `BUG-SPEED.md` §11), the presentation rate does
+not change the simulation speed. User-verified on the 7950X: stable 60 fps
+(`fps_limit=60`), no device loss. 30 fps remains the recommended default (the engine's
+design point); see Task 11.5 in the roadmap, now closed.)*
+
 ## Windows safety
 
 - `gow3_settings.h`: the `#ifdef _WIN32` branch is the exact original line
