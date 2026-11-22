@@ -137,17 +137,34 @@ both. Tasks 12–15 closed with the evidence noted on each task.
 
 ## Phase 4 — Linux Packaging / Distribution
 
-- [ ] **Task 16 — Priority: High | Effort: 4 h**
+**Status: PHASE CLOSED (2026-11-22).** The thick self-contained AppImage verified on NVIDIA
+(machine 1, FX-8350 + GTX 1060, 180 s of gameplay at 30 FPS) and, on 2026-11-22, on a PS5
+(ps5-bazzite-deck, Fedora-based, AMD RDNA2 GPU, **no NVIDIA driver**): the game ran on the
+bundled Mesa 26.3.1, confirming the AMD/Intel path for real and the soname fix on a
+Fedora-based host. Task 17 done (`linux/README.md` + a pointer in `README.md`); task 18
+(CI/release notes) deferred with the reason documented. Machine 2 (7950X + 3090) stays an
+optional check: its path (the host's NVIDIA driver) is the one already verified on machine 1.
+
+- [x] **Task 16 — Priority: High | Effort: 4 h**
   **Evidence:** `tools/package_windows.sh` and `tools/package_check.py`; `gow3_pc/packaging/windows/`.
   Define the Linux package structure (runtime + `libgow3gpu.so` + launcher + game runner + scripts + Python), with a clear entry point (`./TLOU` or similar) and no MSYS2 dependencies.
+  *(Shape decided (2026-11-21, see `task-16-es.md`): a **thick** AppImage (every library embedded), **without the game** (the player picks their own copy in the launcher), entry point the **launcher**. **Done and verified** (2026-11-21, pm): `gow3_pc/packaging/appimage/` (AppRun, `.desktop`, the icon from the player's own copy, and `bundle_libs.py`, the `ldd` closure of the 165 system libraries plus the Mesa AMD/Intel ICDs) → a 157 MB `dist/TLOU-Remastered-x86_64.AppImage` without the game (`package_check.py` over the payload's 1051 files). Verified on machine 1 (FX-8350 + GTX 1060): the launcher starts from the AppImage (the data in `~/.local/share/tlou-remastered`) and the game ran 180 s at 30 FPS via `--play --seconds 180`. **Closed (2026-11-22):** the Mesa path without NVIDIA was verified for real on a PS5 (ps5-bazzite-deck, Fedora-based, RDNA2 GPU, no NVIDIA driver): with the new AppImage (2026-11-22 fixes: soname links in `needed_check.py`, the Tcl/Tk data in the AppRun's `share/tcl`, the clear message in `gow3_vulkan.py`) the game ran on the bundled Mesa without dropping below 35 FPS; the soname fix is thus confirmed on a Fedora-based host. Machine 2 (7950X + 3090) stays an optional check (the same NVIDIA path already verified on machine 1).)
 
-- [ ] **Task 17 — Priority: Medium | Effort: 3 h**
+- [x] **Task 17 — Priority: Medium | Effort: 3 h**
   **Evidence:** `README.md` *Playing* section (launch flow) and `tools/package_windows.sh` (bundled Python copy).
   Document in a `linux/README.md` the installation and boot instructions for Linux (dependencies, common `GOW3_*`/`TLOU_*` environment variables, location of `analysis/tlou-user`).
+  *(Done 2026-11-22: `linux/README.md` — requirements and the GPU matrix, both packages (AppImage/zip), first start, the player data (`GOW3_DATA_DIR` and the `tlou/` + `tlou-user/` layout), the player-facing `GOW3_*`/`TLOU_*` variables, troubleshooting and development — plus the “Linux” pointer in `README.md`'s *Playing* section.)*
 
 - [ ] **Task 18 — Priority: Low | Effort: 2 h**
   **Evidence:** `.github/` (possible CI workflows) and `tools/release-notes/`.
   Add, if appropriate, a CI/build workflow for Linux and release notes for the Linux package.
+  *(Deferred 2026-11-22: CI is not reproducible on a stock runner without recreating the
+build's dependency set (e.g. `sdl3` is not in ubuntu-latest's repositories) and it cannot be
+validated from the project's machines; the package is already verified on every local build
+(`package_check.py` over the payload and `needed_check.py` over the NEEDED names). Release
+notes for the Linux package will be added when the first Linux release with a distribution
+channel is cut — meanwhile the AppImage ships through the ps5-bazzite-deck project. Reopen if
+CI with an Arch runner or an image with the dependencies is wanted.)*
 
 ---
 
@@ -176,10 +193,10 @@ both. Tasks 12–15 closed with the evidence noted on each task.
 
 - [x] `gow3_pc/build.sh` generates `out/gow3-probe` and `out/gpu/libgow3gpu.so` without errors on the target Linux.
 - [x] `gow3_pc/build.sh --test` runs all unit tests on Linux.
-- [ ] `python3 tools/probe_tlou.py --boot` boots the game with a real copy of `CUSA00552` + 1.11 update.
-- [ ] The game enters the main menu and a full session can be played with no Vulkan device loss.
-- [ ] The window is created via SDL3 (X11 or Wayland) and the game image is displayed.
-- [ ] The gamepad (DualShock 4 / Xbox) and keyboard/mouse receive input; it can be recorded and reproduced (`GOW3_PAD_RECORD` / `tlou_replay.py`).
-- [ ] The Linux launcher/runner starts and applies resolution, frame cap, and language from `tlou.ini`.
-- [ ] The Linux package (`package_linux.sh`) generates an executable folder/binary without game files and without depending on MSYS2.
-- [ ] The documentation (`linux/README.md` and `README.md`) indicates installation and boot for Linux.
+- [x] `python3 tools/probe_tlou.py --boot` boots the game with a real copy of `CUSA00552` + 1.11 update (Task 11, and also from the AppImage, Task 16).
+- [x] The game enters the main menu and a full session can be played with no Vulkan device loss (Task 11, on both machines).
+- [x] The window is created via SDL3 (X11 or Wayland) and the game image is displayed (Task 11, 1280×720).
+- [ ] The gamepad (DualShock 4 / Xbox) and keyboard/mouse receive input; it can be recorded and reproduced (`GOW3_PAD_RECORD` / `tlou_replay.py`). *(The gamepad yes: mapped XInput→Sofa2 and used in Task 11's sessions; recording/reproducing is still to do.)*
+- [x] The Linux launcher/runner starts and applies resolution, frame cap, and language from `tlou.ini` (Task 11; also from the AppImage, Task 16).
+- [x] The Linux package (`package_linux.sh`) generates an executable folder/binary without game files and without depending on MSYS2 (Task 7; since Task 16 also the 157 MB AppImage, checked with `package_check.py`).
+- [x] The documentation (`linux/README.md` and `README.md`) indicates installation and boot for Linux. *(2026-11-22.)*

@@ -138,17 +138,34 @@ con la evidencia anotada en cada una.
 
 ## Fase 4 — Empaquetado / distribución para Linux
 
-- [ ] **Tarea 16 — Prioridad: Alta | Esfuerzo: 4 h**
+**Estado: FASE CERRADA (22-11-2026).** AppImage gruesa autocontenida verificada en NVIDIA
+(máquina 1, FX-8350 + GTX 1060, 180 s de juego a 30 FPS) y, el 22-11, en una PS5
+(ps5-bazzite-deck, Fedora-based, GPU AMD RDNA2, **sin driver de NVIDIA**): el juego corrió
+sobre la Mesa 26.3.1 embebida, confirmando el path AMD/Intel de verdad y el fix de sonames en
+un huésped Fedora-based. Tarea 17 hecha (`linux/README.md` + puntero en `README.md`); tarea 18
+(CI/release notes) diferida con motivo documentado. La máquina 2 (7950X + 3090) queda como
+chequeo opcional: su path (NVIDIA del huésped) es el mismo ya verificado en la máquina 1.
+
+- [x] **Tarea 16 — Prioridad: Alta | Esfuerzo: 4 h**
   **Evidencia:** `tools/package_windows.sh` y `tools/package_check.py`; `gow3_pc/packaging/windows/`.
   Definir la estructura del paquete para Linux (runtime + `libgow3gpu.so` + launcher + runner del juego + scripts + Python), con un punto de entrada claro (`./TLOU` o similar) y sin dependencias de MSYS2.
+  *(Decidida la forma (21-11, ver `task-16-es.md`): AppImage **grueso** (todas las librerías embebidas), **sin el juego** (el usuario elige su copia en el launcher), punto de entrada el **launcher**. Hecha la base de código: los datos del jugador viven fuera del paquete vía `GOW3_DATA_DIR` (la AppImage es de solo lectura) y se restauró `gow3_pc/launcher/gow3_vulkan.py` del port de Uncharted, que el merge de 0.4.0 dejó huérfano (su test `test_packaged_vulkan.py` pasaba roto; ahora pasa, y `test_data_dir.py` cubre las rutas).   **Hecha y verificada** (21-11, tarde): `gow3_pc/packaging/appimage/` (AppRun, `.desktop`, icono de la propia copia del jugador y `bundle_libs.py`, el cierre `ldd` de las 165 librerías del sistema más los ICD Mesa AMD/Intel) → `dist/TLOU-Remastered-x86_64.AppImage` de 157 MB sin el juego (`package_check.py` sobre los 1051 ficheros del payload). Verificado en la máquina 1 (FX-8350 + GTX 1060): el launcher arranca desde la AppImage (los datos en `~/.local/share/tlou-remastered`) y el juego corrió 180 s a 30 FPS vía `--play --seconds 180`. **Cerrado (22-11-2026):** el path Mesa sin NVIDIA quedó verificado de verdad en una PS5 (ps5-bazzite-deck, Fedora-based, GPU RDNA2, sin driver de NVIDIA): con la AppImage nueva (fixes del 22-11: enlaces soname en `needed_check.py`, los datos Tcl/Tk en `share/tcl` del AppRun, el mensaje claro de `gow3_vulkan.py`) el juego corrió sobre la Mesa embebida sin bajar de 35 FPS; el fix de sonames se confirma así en un huésped Fedora-based. La máquina 2 (7950X + 3090) queda como chequeo opcional (mismo path NVIDIA ya verificado en la máquina 1).)
 
-- [ ] **Tarea 17 — Prioridad: Media | Esfuerzo: 3 h**
+- [x] **Tarea 17 — Prioridad: Media | Esfuerzo: 3 h**
   **Evidencia:** sección *Playing* de `README.md` (flujo de arranque) y `tools/package_windows.sh` (copia del Python embebido).
   Documentar en `linux/README.md` las instrucciones de instalación y arranque para Linux (dependencias, variables de entorno comunes `GOW3_*`/`TLOU_*`, ubicación de `analysis/tlou-user`).
+  *(Hecha 22-11-2026: `linux/README.md` — requisitos y matriz de GPUs, los dos paquetes (AppImage/zip), primer arranque, los datos del jugador (`GOW3_DATA_DIR` y el layout `tlou/` + `tlou-user/`), las variables `GOW3_*`/`TLOU_*` de jugador, troubleshooting y desarrollo — más el puntero «Linux» en la sección *Playing* de `README.md`.)*
 
 - [ ] **Tarea 18 — Prioridad: Baja | Esfuerzo: 2 h**
   **Evidencia:** `.github/` (posibles workflows de CI) y `tools/release-notes/`.
   Añadir, si procede, un workflow de CI/build para Linux y release notes del paquete para Linux.
+  *(Diferida 22-11-2026: el CI no es reproducible en un runner estándar sin recrear el set de
+dependencias del build (p. ej. `sdl3` no está en los repos de ubuntu-latest) y no se puede
+validar desde las máquinas del proyecto; el paquete se verifica ya en cada build local
+(`package_check.py` sobre el payload y `needed_check.py` sobre los NEEDED). Los release notes
+del paquete Linux se añaden al cortarse el primer release Linux con canal de distribución —
+mientras tanto la AppImage se distribuye vía el proyecto ps5-bazzite-deck. Reabrir si se quiere
+CI con un runner Arch o una imagen con las dependencias.)*
 
 ---
 
@@ -177,10 +194,10 @@ con la evidencia anotada en cada una.
 
 - [x] `gow3_pc/build.sh` genera `out/gow3-probe` y `out/gpu/libgow3gpu.so` sin errores en el Linux objetivo.
 - [x] `gow3_pc/build.sh --test` ejecuta todos los tests unitarios en Linux.
-- [ ] `python3 tools/probe_tlou.py --boot` arranca el juego con una copia real de `CUSA00552` + actualización 1.11.
-- [ ] El juego entra en el menú principal y se puede jugar una sesión completa sin pérdida del dispositivo Vulkan.
-- [ ] La ventana se crea vía SDL3 (X11 o Wayland) y se muestra la imagen del juego.
-- [ ] El mando (DualShock 4 / Xbox) y el teclado/ratón reciben la entrada; puede grabarse y reproducirse (`GOW3_PAD_RECORD` / `tlou_replay.py`).
-- [ ] El launcher/runner para Linux arranca y aplica la resolución, el límite de fotogramas y el idioma desde `tlou.ini`.
-- [ ] El paquete para Linux (`package_linux.sh`) genera una carpeta/binario ejecutable sin ficheros del juego y sin depender de MSYS2.
-- [ ] La documentación (`linux/README.md` y `README.md`) indica la instalación y el arranque para Linux.
+- [x] `python3 tools/probe_tlou.py --boot` arranca el juego con una copia real de `CUSA00552` + actualización 1.11 (Tarea 11, y también desde la AppImage, Tarea 16).
+- [x] El juego entra en el menú principal y se puede jugar una sesión completa sin pérdida del dispositivo Vulkan (Tarea 11, en las dos máquinas).
+- [x] La ventana se crea vía SDL3 (X11 o Wayland) y se muestra la imagen del juego (Tarea 11, 1280×720).
+- [ ] El mando (DualShock 4 / Xbox) y el teclado/ratón reciben la entrada; puede grabarse y reproducirse (`GOW3_PAD_RECORD` / `tlou_replay.py`). *(El mando sí: mapeado XInput→Sofa2 y usado en las sesiones de la Tarea 11; falta la grabación/reproducción.)*
+- [x] El launcher/runner para Linux arranca y aplica la resolución, el límite de fotogramas y el idioma desde `tlou.ini` (Tarea 11; también desde la AppImage, Tarea 16).
+- [x] El paquete para Linux (`package_linux.sh`) genera una carpeta/binario ejecutable sin ficheros del juego y sin depender de MSYS2 (Tarea 7; desde la Tarea 16 también la AppImage de 157 MB, verificada con `package_check.py`).
+- [x] La documentación (`linux/README.md` y `README.md`) indica la instalación y el arranque para Linux. *(22-11-2026.)*
