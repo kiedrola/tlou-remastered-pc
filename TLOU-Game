@@ -31,11 +31,15 @@ if ! "$python" -c 'import tkinter' 2>/dev/null; then
 fi
 # From a terminal: the output (and a failure) goes to it. Without one (double-clicked in a file manager)
 # there is no window to say why a launch failed: the output goes to a log beside the player data, as the
-# game's own run does (the game's run log, analysis/tlou/game-run.log, is written by run_game.py).
+# game's own run does (the game's run log, tlou/game-run.log in the data folder, is written by run_game.py).
 if [[ -t 2 ]]; then
     exec "$python" "$script" "$@"
 fi
-mkdir -p "$here/analysis/tlou"
-log=$here/analysis/tlou/game-start.log
+# Beside the player data: analysis/ in a checkout or extracted package, or GOW3_DATA_DIR (the AppImage's
+# AppRun exports it; the package's own folder is read-only there). Nothing writable: /tmp.
+data=${GOW3_DATA_DIR:-$here/analysis}
+mkdir -p "$data/tlou" 2>/dev/null
+log=$data/tlou/game-start.log
+touch "$log" 2>/dev/null || log=/tmp/tlou-game-start.log
 "$python" "$script" "$@" 2>&1 | tee -a "$log"
 exit "${PIPESTATUS[0]}"

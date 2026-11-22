@@ -103,3 +103,29 @@ class PackagedVulkanTests(unittest.TestCase):
         self.env["GOW3_NVIDIA_LIB_DIR"] = str(self.libs)
         vulkan.configure(self.env, (self.icds,), ())
         self.assertIn("nvidia_icd.json", self.env["VK_DRIVER_FILES"])
+
+    def test_open_nvk_driver_is_accepted(self):
+        driver = self.library("libvulkan_nvkk.so.0")
+        (self.icds / "nvk_icd.json").write_text(json.dumps({"file_format_version": "1.0.0",
+            "ICD": {"library_path": driver.name, "api_version": "1.3.0"}}))
+        self.assertIn("host NVIDIA", self.configure())
+        data = json.loads(Path(self.env["VK_DRIVER_FILES"].split(":")[0]).read_text())
+        self.assertEqual(Path(data["ICD"]["library_path"]).resolve(), driver)
+
+    def test_32_bit_sibling_manifests_sort_first_but_are_skipped(self):
+        # Fedora/Bazzite ship nvidia_icd.i686.json and nvidia_icd.x86_64.json beside each
+        # other; the 32-bit one sorts first and must not win.
+        driver = self.library("libGLX_nvidia.so.0")
+        (self.icds / "nvidia_icd.i686.json").write_text(json.dumps({"ICD": {
+            "library_path": str(driver), "api_version": "1.0.0"}}))
+        (self.icds / "nvidia_icd.x86_64.json").write_text(json.dumps({"ICD": {
+            "library_path": str(driver), "api_version": "1.3.0"}}))
+        self.assertIn("host NVIDIA", self.configure())
+        data = json.loads(Path(self.env["VK_DRIVER_FILES"].split(":")[0]).read_text())
+        self.assertEqual(data["ICD"]["api_version"], "1.3.0")
+
+    def test_manifest_named_after_its_library_counts(self):
+        driver = self.library("libGLX_nvidia.so.0")
+        (self.icds / "glx_icd.json").write_text(json.dumps({"ICD": {
+            "library_path": driver.name, "api_version": "1.3.0"}}))
+        self.assertIn("host NVIDIA", self.configure())

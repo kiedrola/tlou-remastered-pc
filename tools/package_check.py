@@ -1,6 +1,7 @@
 """Checks a package folder holds no game file and nothing of this machine, then zips it.
 
-usage: package_check.py <stage folder> <zip file>
+usage: package_check.py <stage folder> <zip file | ->
+- (dash) checks only (the AppImage's payload, which ships as an AppImage, not a zip).
 The folder's name is the top folder in the zip.
 """
 import sys
@@ -19,7 +20,8 @@ PRIVATE = [f"{Path.home().parent.name}\\{Path.home().name}".encode(), f"{Path.ho
 
 
 def main():
-    stage, archive = Path(sys.argv[1]), Path(sys.argv[2])
+    stage, archive = Path(sys.argv[1]), Path("-" if sys.argv[2] == "-" else sys.argv[2])
+    check_only = sys.argv[2] == "-"
     files = [p for p in sorted(stage.rglob("*")) if p.is_file()]
     bad = []
     for path in files:
@@ -35,6 +37,9 @@ def main():
                 bad.append(f"{relative} (a path of this machine)")
     if bad:
         raise SystemExit("Not packaged, these should not ship:\n  " + "\n  ".join(bad))
+    if check_only:
+        print(f"{len(files)} files checked, no game file and nothing of this machine")
+        return
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as out:
         for path in files:
             out.write(path, Path(stage.name) / path.relative_to(stage))

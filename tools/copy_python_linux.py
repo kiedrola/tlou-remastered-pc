@@ -1,7 +1,8 @@
 """Copies the running Linux Python into the package (python/): the interpreter, the libpython it
 links against, the standard library without tests and tools, and Pillow. Players need no Python
-installed. The Tcl/Tk runtime Tkinter uses (the `tcl` and `tk` packages, libraries and data) is
-the distribution's, as in a system Python: it is documented in the package's README, not bundled.
+installed. The Tcl/Tk runtime Tkinter uses (the `tcl` and `tk` packages) is the distribution's,
+as in a system Python: its libraries come through the package's ldd closure, and its data is
+documented in the package's README (the zip) or bundled by the AppImage's bundle_libs.py.
 
 usage: copy_python_linux.py <destination>
 """

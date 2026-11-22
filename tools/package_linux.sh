@@ -70,7 +70,11 @@ rm -rf -- "$stage/gow3_pc/out/pydeps/iced_x86/__pycache__"   # (paths of this ma
 find "$stage/gow3_pc/out/pydeps/iced_x86" -name '*.py' -delete
 rm -f -- "$stage/gow3_pc/out/pydeps/iced_x86/_iced_x86_py.pyi"
 cp gow3_pc/scripts/*.py "$stage/gow3_pc/scripts/"
-cp tools/probe_tlou.py tools/apply_update.py tools/run_game.py "$stage/tools/"
+cp tools/gow3_data.py tools/probe_tlou.py tools/apply_update.py tools/run_game.py "$stage/tools/"
+# The Vulkan driver selection of the packaged entry point (the AppImage's AppRun runs the
+# launcher through it: the host's NVIDIA driver, the bundled Mesa AMD/Intel ICDs, or both).
+mkdir -p "$stage/gow3_pc/launcher"
+cp gow3_pc/launcher/gow3_vulkan.py "$stage/gow3_pc/launcher/"
 # (run_game.py: the TLOU-Game starter's script, as TLOU Game.exe's on Windows)
 cp launcher/tlou_launcher.pyw launcher/updater.py "$stage/launcher/"
 # The starters: the package's entry points (TLOU-Launcher opens the launcher, TLOU-Game starts the game

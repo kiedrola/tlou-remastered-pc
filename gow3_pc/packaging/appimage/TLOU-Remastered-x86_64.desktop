@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=The Last of Us Remastered
+GenericName=Video Game
+Comment=Play The Last of Us Remastered (the PS4 port) on this PC
+Exec=AppRun
+Icon=tlou-remastered
+Type=Application
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=tlou;the last of us;ps4;port;

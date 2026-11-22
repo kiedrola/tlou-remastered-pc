@@ -1,7 +1,9 @@
 """The Last of Us Remastered: game launcher (Tkinter, nothing to install).
 
-Reads and writes the settings the game reads (analysis/tlou-user/tlou.ini, other keys stay as they
-are), keeps its own switches in launcher.json beside it and starts tools/probe_tlou.py.
+Reads and writes the settings the game reads (tlou.ini in the player data's tlou-user folder,
+analysis/tlou-user in a checkout, GOW3_DATA_DIR or ~/.local/share/tlou-remastered in the AppImage;
+other keys stay as they are), keeps its own switches in launcher.json beside it and starts
+tools/probe_tlou.py.
 Usage: tlou_launcher.pyw [--seconds N] [--close-after S]   (for tests: a time limit for the game, and
 for the launcher's window; default none)
 """
@@ -22,14 +24,23 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import updater  # noqa: E402  (launcher/updater.py: updates from the GitHub releases)
 ROOT = HERE.parent
+sys.path.insert(0, str(ROOT / "tools"))
+import gow3_data  # noqa: E402  (tools/gow3_data.py: the player data's root folder, GOW3_DATA_DIR)
+# The player data (settings, saves, logs, caches) lives outside the package's own folder:
+# analysis/ in a checkout, or GOW3_DATA_DIR (~/.local/share/tlou-remastered inside the AppImage,
+# whose filesystem is read-only).
+DATA = gow3_data.data_root(ROOT)
 ICON = HERE / "assets/icon.ico"   # made from the player's own picture, not in the repository
 GAME_ICON = "sce_sys/icon0.png"   # without it, the icon of the player's own dump, read at run time
-USER = ROOT / "analysis/tlou-user"
+USER = DATA / "tlou-user"
 INI = USER / "tlou.ini"
 SWITCHES = USER / "launcher.json"
-LOG = ROOT / "analysis/tlou/boot.log"
-RUN_LOG = ROOT / "analysis/tlou/launcher-run.log"
-GAME = ROOT.parent / "CUSA00552"
+LOG = DATA / "tlou" / "boot.log"
+RUN_LOG = DATA / "tlou" / "launcher-run.log"
+GAME_RUN_LOG = DATA / "tlou" / "game-run.log"
+# The player's game copy: the launcher's saved game_folder (or TLOU_GAME); the default is the
+# checkout's layout (the game next to the repository).
+GAME = Path(os.environ["TLOU_GAME"]) if os.environ.get("TLOU_GAME") else ROOT.parent / "CUSA00552"
 
 FPS = ["30", "40", "45", "50", "55", "60", "75", "90", "100", "120"]
 DISPLAY = {"borderless": "borderless", "fullscreen": "fullscreen", "windowed": "windowed"}   # text key: value
@@ -73,7 +84,7 @@ PROFILE_ENV = {"GOW3_PROFILE": "10", "GOW3_THREAD_IDS": "1", "GOW3_COMPUTE_WAIT_
                "GOW3_GPU_CHECKPOINTS": "4",
                # Keep buffer ranges for the dispatches immediately around the water/pallet loss.
                "GOW3_TRACE_DISPATCH": "82c46b8b,e44070db,106beafd,15d34dcb,951b339e",
-               "GOW3_DUMP_DIR": str(ROOT / "analysis/tlou/profile-user")}
+               "GOW3_DUMP_DIR": str(DATA / "tlou" / "profile-user")}
 
 # Debug menu. Live: optimizations the game re-reads every 250 ms (gow3_toggles.h, a bit set in the
 # file switches one off). The file lasts one run: probe_tlou.py deletes it at the start.

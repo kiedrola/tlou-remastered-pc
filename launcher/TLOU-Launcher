@@ -33,7 +33,11 @@ base=$(cd -- "$root/.." && pwd)
 if [[ -t 2 ]]; then
     exec "$python" "$script" "$@"
 fi
-mkdir -p "$base/analysis/tlou"
-log=$base/analysis/tlou/launcher-start.log
+# Beside the player data: analysis/ in a checkout or extracted package, or GOW3_DATA_DIR (the AppImage's
+# AppRun exports it; the package's own folder is read-only there). Nothing writable: /tmp.
+data=${GOW3_DATA_DIR:-$base/analysis}
+mkdir -p "$data/tlou" 2>/dev/null
+log=$data/tlou/launcher-start.log
+touch "$log" 2>/dev/null || log=/tmp/tlou-launcher-start.log
 "$python" "$script" "$@" 2>&1 | tee -a "$log"
 exit "${PIPESTATUS[0]}"

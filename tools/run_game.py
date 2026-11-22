@@ -20,6 +20,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import gow3_data   # tools/gow3_data.py: the player data's root folder (GOW3_DATA_DIR)
+
 ROOT = Path(__file__).resolve().parent.parent
 LAUNCHER = ROOT / "launcher/tlou_launcher.pyw"
 
@@ -77,7 +79,7 @@ def open_run_log(launcher):
     """The run log to write the game's output to; a log that cannot be written must not stop the
     game (a locked or read-only file, a restricted folder), so the next place is tried."""
     import tempfile
-    for path in (launcher.RUN_LOG, ROOT / "analysis/tlou/game-run.log",
+    for path in (launcher.RUN_LOG, launcher.GAME_RUN_LOG,
                  Path(tempfile.gettempdir()) / "tlou-run.log"):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,7 +130,7 @@ def main():
 def report_failure(error):
     """pythonw has no console: leave a reason where the launcher's run log is."""
     import traceback
-    path = ROOT / "analysis/tlou/launcher-run.log"
+    path = gow3_data.data_root(ROOT) / "tlou" / "launcher-run.log"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as output:

@@ -1,0 +1,30 @@
+#!/bin/sh
+# The Last of Us Remastered (PS4 to Linux port): the AppImage entry point.
+# Player data (settings, saves, logs, caches): GOW3_DATA_DIR, defaulting to
+# ~/.local/share/tlou-remastered (the package itself is read-only here).
+# Vulkan driver: gow3_pc/launcher/gow3_vulkan.py selects it (the host's NVIDIA,
+# the bundled Mesa AMD/Intel) and execs the launcher. --play starts the game
+# directly with the launcher's saved settings. The game's folder: the launcher's saved
+# game_folder, or TLOU_GAME=<folder> (the player's own copy; it never ships inside).
+# Tcl/Tk's data (init.tcl, tk.tcl) ships in share/tcl: Tcl's fallback is the path baked
+# into libtcl at build time, which only exists on the build machine (on Fedora/Bazzite
+# the launcher died with "Can't find a usable init.tcl").
+export GOW3_DATA_DIR="${GOW3_DATA_DIR:-$HOME/.local/share/tlou-remastered}"
+export LD_LIBRARY_PATH="$APPDIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# The bundled Mesa ICD manifests (AMD/Intel), whatever their name.
+_bundled_icds=""
+for _f in "$APPDIR"/share/vulkan/icd.d/*.json; do
+    [[ -f $_f ]] && _bundled_icds="${_bundled_icds:+$_bundled_icds:}$_f"
+done
+export GOW3_BUNDLED_VK_DRIVER_FILES="${GOW3_BUNDLED_VK_DRIVER_FILES:-$_bundled_icds}"
+# The bundled Tcl/Tk data, whatever its version (share/tcl/tcl8.6, share/tcl/tk8.6, ...).
+for _d in "$APPDIR"/share/tcl/*; do
+    [[ -d $_d ]] || continue
+    [[ -f $_d/init.tcl && -z ${TCL_LIBRARY:-} ]] && export TCL_LIBRARY="$_d"
+    [[ -f $_d/tk.tcl && -z ${TK_LIBRARY:-} ]] && export TK_LIBRARY="$_d"
+done
+if [[ "${1:-}" == --play ]]; then
+    shift
+    exec "$APPDIR/python/bin/python3" "$APPDIR/gow3_pc/launcher/gow3_vulkan.py" "$APPDIR/TLOU-Game" "$@"
+fi
+exec "$APPDIR/python/bin/python3" "$APPDIR/gow3_pc/launcher/gow3_vulkan.py" "$APPDIR/TLOU-Launcher" "$@"
