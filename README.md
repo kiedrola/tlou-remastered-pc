@@ -225,6 +225,15 @@ and press Play. Nothing else needs installing. After that, a shortcut with the g
 beside the launcher. `TLOU Game.exe` starts the game directly with the last settings selected in
 the launcher.
 
+#### Linux
+
+The AppImage is self-contained (embedded Python, the runtime's libraries and the Mesa 26.3.1
+Vulkan drivers for AMD/Intel): `chmod +x TLOU-Remastered-x86_64.AppImage`, then run it for the
+launcher, or `./TLOU-Remastered-x86_64.AppImage --play` for the game. The zip needs your
+distribution's libraries instead. NVIDIA uses your system's driver (proprietary or NVK); AMD
+and Intel use the bundled Mesa from the AppImage (or the system's Mesa from the zip). Player
+data, the common `GOW3_*`/`TLOU_*` variables and troubleshooting: `linux/README.md`.
+
 ### From this repository
 
 Needs Python 3.10 or newer.

@@ -10,6 +10,18 @@ distribuição. No Arch:
 e um driver Vulkan (mesa-vulkan-drivers, ou o driver proprietário da NVIDIA).
 O Python (com Tkinter e Pillow) já vem no pacote, em python/: não precisa instalar Python.
 
+Placas de vídeo:
+- NVIDIA: precisa do driver do seu sistema (proprietário ou NVK). Testado: GTX 1060 3GB
+  (modo de pouca VRAM entra sozinho com 3 GiB ou menos).
+- AMD: todas as GPUs com suporte Vulkan na Mesa — Polaris (RX 400/500), Vega, e todo o RDNA
+  (RX 5000/6000/7000/9000), CDNA (Instinct) e a GPU da PS5 (RDNA2). A AppImage traz a Mesa
+  26.3.1 embutida (não precisa de nada do sistema); o zip usa a mesa-vulkan-drivers do sistema.
+- Intel: Haswell (4ª geração) em diante, inclusive as iGPUs atuais e a Arc.
+- Mais antigas que isso (AMD pré-Polaris, Intel pré-Haswell): não têm driver Vulkan em
+  nenhuma Mesa (nem a do sistema) — não suportadas.
+- Em GPU AMD/Intel, a linha "using the bundled Mesa drivers" (AppImage) é o caminho normal,
+  não um erro.
+
 1. Extraia o zip em uma pasta com bastante espaço livre.
 2. Inicie o launcher:
        ./TLOU-Launcher
@@ -35,6 +47,19 @@ libraries. On Arch:
     sudo pacman -S sdl3 ffmpeg fmt zydis xxhash libx11 vulkan-icd-loader tcl tk
 plus a Vulkan driver (mesa-vulkan-drivers, or the NVIDIA proprietary driver).
 Python (with Tkinter and Pillow) is included in the package, in python/: no Python install needed.
+
+Graphics cards:
+- NVIDIA: your system's driver is required (proprietary or NVK). Tested: GTX 1060 3GB
+  (low-VRAM mode kicks in by itself on 3 GiB or less).
+- AMD: every GPU with Vulkan support in Mesa — Polaris (RX 400/500), Vega, and all RDNA
+  (RX 5000/6000/7000/9000), CDNA (Instinct) and the PS5's GPU (RDNA2). The AppImage ships
+  Mesa 26.3.1 bundled (nothing needed from the system); the zip uses the system's
+  mesa-vulkan-drivers.
+- Intel: Haswell (4th generation) and newer, including current iGPUs and Arc.
+- Older than that (pre-Polaris AMD, pre-Haswell Intel): no Vulkan driver exists in any Mesa
+  (not even the system's) — unsupported.
+- On AMD/Intel GPUs, the "using the bundled Mesa drivers" line (AppImage) is the normal path,
+  not an error.
 
 1. Extract the zip to a folder with plenty of free space.
 2. Start the launcher:
