@@ -164,7 +164,7 @@ dependencias del build (p. ej. `sdl3` no está en los repos de ubuntu-latest) y 
 validar desde las máquinas del proyecto; el paquete se verifica ya en cada build local
 (`package_check.py` sobre el payload y `needed_check.py` sobre los NEEDED). Los release notes
 del paquete Linux se añaden al cortarse el primer release Linux con canal de distribución —
-mientras tanto la AppImage se distribuye vía el proyecto ps5-bazzite-deck. Reabrir si se quiere
+mientras tanto la AppImage se distribuirá desde las releases del fork (kiedrola/tlou-remastered-pc); ps5-bazzite-deck es el entorno en el que se testearon las GPUs AMD sin NVIDIA, no el canal de distribución. Reabrir si se quiere
 CI con un runner Arch o una imagen con las dependencias.)*
 
 ---

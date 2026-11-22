@@ -163,7 +163,7 @@ build's dependency set (e.g. `sdl3` is not in ubuntu-latest's repositories) and 
 validated from the project's machines; the package is already verified on every local build
 (`package_check.py` over the payload and `needed_check.py` over the NEEDED names). Release
 notes for the Linux package will be added when the first Linux release with a distribution
-channel is cut — meanwhile the AppImage ships through the ps5-bazzite-deck project. Reopen if
+channel is cut — meanwhile the AppImage will ship from the fork's releases (kiedrola/tlou-remastered-pc); ps5-bazzite-deck is the environment the no-NVIDIA AMD GPUs were tested on, not the distribution channel. Reopen if
 CI with an Arch runner or an image with the dependencies is wanted.)*
 
 ---
